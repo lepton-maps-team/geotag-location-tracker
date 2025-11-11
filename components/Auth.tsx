@@ -4,12 +4,16 @@ import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const Auth = () => {
   const router = useRouter();
@@ -68,67 +72,144 @@ const Auth = () => {
   }, [password, router, username]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Login</Text>
-      <TextInput
-        placeholder="Username"
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={username}
-        onChangeText={setUsername}
-        style={styles.input}
-        editable={!loading}
-      />
-      <TextInput
-        placeholder="Password"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        style={styles.input}
-        editable={!loading}
-      />
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      <TouchableOpacity
-        onPress={handleLogin}
-        style={[styles.button, loading && styles.buttonDisabled]}
-        disabled={loading}
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.flex}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Login</Text>
-        )}
-      </TouchableOpacity>
-    </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.hero}>
+            <Text style={styles.heroTitle}>Welcome back</Text>
+            <Text style={styles.heroSubtitle}>
+              Sign in to continue tracking field locations for your projects.
+            </Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Sign in</Text>
+            <View style={styles.inputs}>
+              <TextInput
+                placeholder="Username"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={username}
+                onChangeText={setUsername}
+                style={styles.input}
+                editable={!loading}
+              />
+              <TextInput
+                placeholder="Password"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+                style={styles.input}
+                editable={!loading}
+              />
+            </View>
+            {error ? (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              onPress={handleLogin}
+              style={[styles.button, loading && styles.buttonDisabled]}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: "#fff",
-    gap: 16,
+    backgroundColor: "#0f172a",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "600",
-    textAlign: "center",
+  flex: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    gap: 28,
+  },
+  hero: {
+    gap: 12,
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  heroSubtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#94a3b8",
+  },
+  card: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    borderRadius: 18,
+    padding: 24,
+    gap: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 10,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#f1f5f9",
+  },
+  inputs: {
+    gap: 14,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: "rgba(30, 41, 59, 0.9)",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: Platform.select({ ios: 16, default: 14 }),
     fontSize: 16,
+    color: "#e2e8f0",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+  },
+  errorBanner: {
+    backgroundColor: "rgba(248, 113, 113, 0.15)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(248, 113, 113, 0.4)",
   },
   button: {
     backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 8,
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: "center",
+    shadowColor: "#1d4ed8",
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -139,8 +220,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   errorText: {
-    color: "#b91c1c",
-    textAlign: "center",
+    color: "#fca5a5",
+    fontSize: 14,
   },
 });
 

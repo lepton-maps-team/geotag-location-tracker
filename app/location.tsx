@@ -2,16 +2,18 @@ import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as Location from "expo-location";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Alert,
-  Button,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type LocationData = {
   Latitude: number;
@@ -32,6 +34,7 @@ type SessionMeta = {
 type RecordingSession = {
   meta: SessionMeta;
   path: LocationData[];
+  uploaded?: boolean;
 };
 
 const STORAGE_KEY = "RECORDINGS";
@@ -52,6 +55,14 @@ const LocationScreen: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [subscription, setSubscription] =
     useState<Location.LocationSubscription | null>(null);
+
+  const recordingSummary = useMemo(() => {
+    if (!path.length) return "No points recorded yet.";
+    const points = path.length;
+    return `${points} point${
+      points === 1 ? "" : "s"
+    } captured in this session.`;
+  }, [path.length]);
 
   // Ask for metadata first
   const handleStartPress = () => {
@@ -77,14 +88,17 @@ const LocationScreen: React.FC = () => {
         timeInterval: 0, // only on movement
       },
       (loc: Location.LocationObject) => {
-        const data: LocationData = {
-          Latitude: parseFloat(loc.coords.latitude.toFixed(6)),
-          Longitude: parseFloat(loc.coords.longitude.toFixed(6)),
-          Accuracy: loc.coords.accuracy ?? null,
-          Timestamp: Math.floor(loc.timestamp / 1000),
-        };
-        setLocation(data);
-        setPath((prev) => [...prev, data]);
+        setPath((prev) => {
+          const nextTimestamp = prev.length + 1;
+          const data: LocationData = {
+            Latitude: parseFloat(loc.coords.latitude.toFixed(6)),
+            Longitude: parseFloat(loc.coords.longitude.toFixed(6)),
+            Accuracy: loc.coords.accuracy ?? null,
+            Timestamp: nextTimestamp,
+          };
+          setLocation(data);
+          return [...prev, data];
+        });
       }
     );
 
@@ -105,7 +119,7 @@ const LocationScreen: React.FC = () => {
         ? JSON.parse(existing)
         : [];
 
-      const newSession: RecordingSession = { meta, path };
+      const newSession: RecordingSession = { meta, path, uploaded: false };
       const updated = [...oldSessions, newSession];
 
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -130,157 +144,451 @@ const LocationScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Live Location Tracker</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.hero}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroTitle}>Live Location Tracker</Text>
+            <Text style={styles.heroSubtitle}>
+              Capture GPS points with rich metadata to build precise field
+              sessions.
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.statusPill,
+              isRecording ? styles.statusRecording : styles.statusIdle,
+            ]}
+          >
+            <View
+              style={[
+                styles.statusDot,
+                isRecording ? styles.statusDotActive : styles.statusDotIdle,
+              ]}
+            />
+            <Text
+              style={[styles.statusText, !isRecording && styles.statusTextIdle]}
+            >
+              {isRecording ? "Recording in progress" : "Idle"}
+            </Text>
+          </View>
+        </View>
 
-      {errorMsg && <Text style={styles.error}>{errorMsg}</Text>}
+        {errorMsg ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          </View>
+        ) : null}
 
-      {location ? (
-        <>
-          <Text style={styles.text}>Latitude: {location.Latitude}</Text>
-          <Text style={styles.text}>Longitude: {location.Longitude}</Text>
-          <Text style={styles.text}>Accuracy: {location.Accuracy} m</Text>
-          <Text style={styles.text}>Timestamp: {location.Timestamp}</Text>
-        </>
-      ) : (
-        <Text style={styles.text}>Waiting for location...</Text>
-      )}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Current position</Text>
+          {location ? (
+            <View style={styles.metricGrid}>
+              <View style={styles.metricCell}>
+                <Text style={styles.metricLabel}>Latitude</Text>
+                <Text style={styles.metricValue}>{location.Latitude}</Text>
+              </View>
+              <View style={styles.metricCell}>
+                <Text style={styles.metricLabel}>Longitude</Text>
+                <Text style={styles.metricValue}>{location.Longitude}</Text>
+              </View>
+              <View style={styles.metricCell}>
+                <Text style={styles.metricLabel}>Accuracy (m)</Text>
+                <Text style={styles.metricValue}>
+                  {location.Accuracy ?? "—"}
+                </Text>
+              </View>
+              <View style={styles.metricCell}>
+                <Text style={styles.metricLabel}>Timestamp</Text>
+                <Text style={styles.metricValue}>{location.Timestamp}</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.placeholder}>Waiting for location...</Text>
+          )}
+        </View>
 
-      <View style={{ marginTop: 20 }}>
-        {!isRecording ? (
-          <Button title="Start Recording" onPress={handleStartPress} />
-        ) : (
-          <Button title="Stop Recording" color="red" onPress={stopRecording} />
-        )}
-      </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Session summary</Text>
+          <Text style={styles.summaryText}>{recordingSummary}</Text>
+        </View>
 
-      {/* Dialog Modal */}
+        <View style={styles.actions}>
+          {!isRecording ? (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleStartPress}
+            >
+              <Text style={styles.primaryButtonText}>Start new recording</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.stopButton]}
+              onPress={stopRecording}
+            >
+              <Text style={styles.primaryButtonText}>Stop &amp; save</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+
       <Modal visible={showDialog} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Enter Session Details</Text>
+            <Text style={styles.modalTitle}>Session details</Text>
+            <Text style={styles.modalSubtitle}>
+              Provide the contextual metadata to tag this recording.
+            </Text>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Name"
-              value={meta.Name}
-              onChangeText={(t) => setMeta({ ...meta, Name: t })}
-            />
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>Session name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Sample Village Visit"
+                placeholderTextColor="#94a3b8"
+                value={meta.Name}
+                onChangeText={(t) => setMeta({ ...meta, Name: t })}
+              />
+            </View>
 
-            <Picker
-              selectedValue={meta.State}
-              onValueChange={(v) => setMeta({ ...meta, State: v })}
-            >
-              {states.map((state) => (
-                <Picker.Item key={state} label={state} value={state} />
-              ))}
-            </Picker>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>State *</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={meta.State}
+                  onValueChange={(v) => setMeta({ ...meta, State: v })}
+                  dropdownIconColor="#e2e8f0"
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Select state" value="" />
+                  {states.map((state) => (
+                    <Picker.Item key={state} label={state} value={state} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
 
-            <Picker
-              selectedValue={meta.District}
-              onValueChange={(v) => setMeta({ ...meta, District: v })}
-            >
-              {districts.map((district) => (
-                <Picker.Item key={district} label={district} value={district} />
-              ))}
-            </Picker>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>District *</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={meta.District}
+                  onValueChange={(v) => setMeta({ ...meta, District: v })}
+                  dropdownIconColor="#e2e8f0"
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Select district" value="" />
+                  {districts.map((district) => (
+                    <Picker.Item
+                      key={district}
+                      label={district}
+                      value={district}
+                    />
+                  ))}
+                </Picker>
+              </View>
+            </View>
 
-            <Picker
-              selectedValue={meta.Block}
-              onValueChange={(v) => setMeta({ ...meta, Block: v })}
-            >
-              {blocks.map((block) => (
-                <Picker.Item key={block} label={block} value={block} />
-              ))}
-            </Picker>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>Block</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={meta.Block}
+                  onValueChange={(v) => setMeta({ ...meta, Block: v })}
+                  dropdownIconColor="#e2e8f0"
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Select block" value="" />
+                  {blocks.map((block) => (
+                    <Picker.Item key={block} label={block} value={block} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
 
-            <Picker
-              selectedValue={meta.Ring}
-              onValueChange={(v) => setMeta({ ...meta, Ring: v })}
-            >
-              <Picker.Item label="R1" value="R1" />
-              <Picker.Item label="R2" value="R2" />
-              <Picker.Item label="R3" value="R3" />
-              <Picker.Item label="R4" value="R4" />
-              <Picker.Item label="R5" value="R5" />
-              <Picker.Item label="R6" value="R6" />
-              <Picker.Item label="R7" value="R7" />
-              <Picker.Item label="R8" value="R8" />
-              <Picker.Item label="R9" value="R9" />
-              <Picker.Item label="R10" value="R10" />
-            </Picker>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>Ring</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={meta.Ring}
+                  onValueChange={(v) => setMeta({ ...meta, Ring: v })}
+                  dropdownIconColor="#e2e8f0"
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Select ring" value="" />
+                  <Picker.Item label="R1" value="R1" />
+                  <Picker.Item label="R2" value="R2" />
+                  <Picker.Item label="R3" value="R3" />
+                  <Picker.Item label="R4" value="R4" />
+                  <Picker.Item label="R5" value="R5" />
+                  <Picker.Item label="R6" value="R6" />
+                  <Picker.Item label="R7" value="R7" />
+                  <Picker.Item label="R8" value="R8" />
+                  <Picker.Item label="R9" value="R9" />
+                  <Picker.Item label="R10" value="R10" />
+                </Picker>
+              </View>
+            </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Child Ring"
-              value={meta.ChildRing}
-              onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
-            />
+            <View style={styles.fieldGroup}>
+              <Text style={styles.inputLabel}>Child ring</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Optional detail"
+                placeholderTextColor="#94a3b8"
+                value={meta.ChildRing}
+                onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
+              />
+            </View>
 
             <View style={styles.modalButtons}>
-              <Button
-                title="Cancel"
-                color="gray"
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonGhost]}
                 onPress={() => setShowDialog(false)}
-              />
-              <Button title="Start" onPress={handleDialogStart} />
+              >
+                <Text style={styles.modalButtonGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleDialogStart}
+              >
+                <Text style={styles.modalButtonText}>Start recording</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 24,
+    backgroundColor: "#020617",
   },
-  title: {
-    fontSize: 26,
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    gap: 20,
+  },
+  hero: {
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    borderRadius: 20,
+    padding: 20,
+    gap: 18,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.15)",
+  },
+  heroCopy: {
+    gap: 8,
+  },
+  heroTitle: {
+    fontSize: 30,
     fontWeight: "700",
-    marginBottom: 12,
+    color: "#e2e8f0",
   },
-  text: {
+  heroSubtitle: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: "#94a3b8",
+  },
+  statusPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  statusRecording: {
+    backgroundColor: "rgba(248, 113, 113, 0.15)",
+  },
+  statusIdle: {
+    backgroundColor: "rgba(94, 234, 212, 0.12)",
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusDotActive: {
+    backgroundColor: "#f87171",
+  },
+  statusDotIdle: {
+    backgroundColor: "#22d3ee",
+  },
+  statusText: {
+    color: "#fca5a5",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  statusTextIdle: {
+    color: "#5eead4",
+  },
+  errorBanner: {
+    backgroundColor: "rgba(248, 113, 113, 0.18)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(248, 113, 113, 0.4)",
+    padding: 14,
+  },
+  errorText: {
+    color: "#fca5a5",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  card: {
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    borderRadius: 18,
+    padding: 20,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.18)",
+  },
+  cardTitle: {
     fontSize: 18,
-    marginTop: 6,
+    fontWeight: "600",
+    color: "#e2e8f0",
   },
-  error: {
-    color: "red",
-    marginTop: 8,
+  metricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  metricCell: {
+    width: "48%",
+    gap: 6,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  metricValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#38bdf8",
+  },
+  placeholder: {
+    fontSize: 15,
+    color: "#94a3b8",
+  },
+  summaryText: {
+    fontSize: 15,
+    color: "#cbd5f5",
+    lineHeight: 22,
+  },
+  actions: {
+    marginTop: 4,
+  },
+  primaryButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    shadowColor: "#1d4ed8",
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  stopButton: {
+    backgroundColor: "#ef4444",
+    shadowColor: "#b91c1c",
+  },
+  primaryButtonText: {
+    color: "#f8fafc",
+    fontSize: 16,
+    fontWeight: "700",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(2, 6, 23, 0.72)",
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 20,
   },
   modalBox: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 20,
-    width: "85%",
+    backgroundColor: "rgba(15, 23, 42, 0.96)",
+    borderRadius: 24,
+    padding: 24,
+    width: "100%",
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "rgba(37, 99, 235, 0.25)",
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 10,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#94a3b8",
+    lineHeight: 20,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 13,
+    color: "#cbd5f5",
+    letterSpacing: 0.4,
   },
   input: {
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 10,
+    borderColor: "rgba(59, 130, 246, 0.35)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#f8fafc",
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+  },
+  pickerWrapper: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.35)",
+    overflow: "hidden",
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+  },
+  picker: {
+    color: "#f8fafc",
   },
   modalButtons: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 10,
+    gap: 12,
+    marginTop: 8,
+  },
+  modalButton: {
+    flex: 1,
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalButtonText: {
+    color: "#f8fafc",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  modalButtonGhost: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.35)",
+  },
+  modalButtonGhostText: {
+    color: "#cbd5f5",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
 
