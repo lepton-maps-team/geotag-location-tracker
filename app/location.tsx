@@ -1,4 +1,4 @@
-import { blocks, districts } from "@/constants/lists";
+import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as Location from "expo-location";
@@ -171,14 +171,9 @@ const LocationScreen: React.FC = () => {
               selectedValue={meta.State}
               onValueChange={(v) => setMeta({ ...meta, State: v })}
             >
-              <Picker.Item label="Select State" value="" />
-              <Picker.Item label="Madhya Pradesh" value="Madhya Pradesh" />
-              <Picker.Item label="Punjab" value="Punjab" />
-              <Picker.Item label="Uttarakhand" value="Uttarakhand" />
-              <Picker.Item
-                label="Uttar Pradesh(East)"
-                value="Uttar Pradesh(East)"
-              />
+              {states.map((state) => (
+                <Picker.Item key={state} label={state} value={state} />
+              ))}
             </Picker>
 
             <Picker
@@ -186,11 +181,7 @@ const LocationScreen: React.FC = () => {
               onValueChange={(v) => setMeta({ ...meta, District: v })}
             >
               {districts.map((district) => (
-                <Picker.Item
-                  key={district.dt_name}
-                  label={district.dt_name}
-                  value={district.dt_name}
-                />
+                <Picker.Item key={district} label={district} value={district} />
               ))}
             </Picker>
 
@@ -199,11 +190,7 @@ const LocationScreen: React.FC = () => {
               onValueChange={(v) => setMeta({ ...meta, Block: v })}
             >
               {blocks.map((block) => (
-                <Picker.Item
-                  key={block.blk_name}
-                  label={block.blk_name}
-                  value={block.blk_name}
-                />
+                <Picker.Item key={block} label={block} value={block} />
               ))}
             </Picker>
 
