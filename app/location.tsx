@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
+  FlatList,
   Modal,
   ScrollView,
   StyleSheet,
@@ -55,6 +56,10 @@ const LocationScreen: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [subscription, setSubscription] =
     useState<Location.LocationSubscription | null>(null);
+  const [searchablePicker, setSearchablePicker] = useState<{
+    field: "State" | "District" | "Block" | null;
+    searchQuery: string;
+  }>({ field: null, searchQuery: "" });
 
   const recordingSummary = useMemo(() => {
     if (!path.length) return "No points recorded yet.";
@@ -63,6 +68,23 @@ const LocationScreen: React.FC = () => {
       points === 1 ? "" : "s"
     } captured in this session.`;
   }, [path.length]);
+
+  const filteredOptions = useMemo(() => {
+    if (!searchablePicker.field) return [];
+    const query = searchablePicker.searchQuery.toLowerCase().trim();
+    let options: string[] = [];
+
+    if (searchablePicker.field === "State") {
+      options = states;
+    } else if (searchablePicker.field === "District") {
+      options = districts;
+    } else if (searchablePicker.field === "Block") {
+      options = blocks;
+    }
+
+    if (!query) return options;
+    return options.filter((opt) => opt.toLowerCase().includes(query));
+  }, [searchablePicker.field, searchablePicker.searchQuery]);
 
   // Ask for metadata first
   const handleStartPress = () => {
@@ -256,57 +278,44 @@ const LocationScreen: React.FC = () => {
 
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>State *</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.State}
-                  onValueChange={(v) => setMeta({ ...meta, State: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select state" value="" />
-                  {states.map((state) => (
-                    <Picker.Item key={state} label={state} value={state} />
-                  ))}
-                </Picker>
-              </View>
+              <TouchableOpacity
+                style={styles.pickerWrapper}
+                onPress={() =>
+                  setSearchablePicker({ field: "State", searchQuery: "" })
+                }
+              >
+                <Text style={styles.pickerText}>
+                  {meta.State || "Select state"}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>District *</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.District}
-                  onValueChange={(v) => setMeta({ ...meta, District: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select district" value="" />
-                  {districts.map((district) => (
-                    <Picker.Item
-                      key={district}
-                      label={district}
-                      value={district}
-                    />
-                  ))}
-                </Picker>
-              </View>
+              <TouchableOpacity
+                style={styles.pickerWrapper}
+                onPress={() =>
+                  setSearchablePicker({ field: "District", searchQuery: "" })
+                }
+              >
+                <Text style={styles.pickerText}>
+                  {meta.District || "Select district"}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>Block</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.Block}
-                  onValueChange={(v) => setMeta({ ...meta, Block: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select block" value="" />
-                  {blocks.map((block) => (
-                    <Picker.Item key={block} label={block} value={block} />
-                  ))}
-                </Picker>
-              </View>
+              <TouchableOpacity
+                style={styles.pickerWrapper}
+                onPress={() =>
+                  setSearchablePicker({ field: "Block", searchQuery: "" })
+                }
+              >
+                <Text style={styles.pickerText}>
+                  {meta.Block || "Select block"}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.fieldGroup}>
@@ -358,6 +367,74 @@ const LocationScreen: React.FC = () => {
                 <Text style={styles.modalButtonText}>Start recording</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Searchable Picker Modal */}
+      <Modal
+        visible={searchablePicker.field !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() =>
+          setSearchablePicker({ field: null, searchQuery: "" })
+        }
+      >
+        <View style={styles.searchableModalOverlay}>
+          <View style={styles.searchableModalBox}>
+            <Text style={styles.searchableModalTitle}>
+              Select {searchablePicker.field}
+            </Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search..."
+              placeholderTextColor="#94a3b8"
+              value={searchablePicker.searchQuery}
+              onChangeText={(text) =>
+                setSearchablePicker({
+                  ...searchablePicker,
+                  searchQuery: text,
+                })
+              }
+              autoFocus
+            />
+            <FlatList
+              data={filteredOptions}
+              keyExtractor={(item) => item}
+              style={styles.searchableList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.searchableItem}
+                  onPress={() => {
+                    if (searchablePicker.field === "State") {
+                      setMeta({ ...meta, State: item });
+                    } else if (searchablePicker.field === "District") {
+                      setMeta({ ...meta, District: item });
+                    } else if (searchablePicker.field === "Block") {
+                      setMeta({ ...meta, Block: item });
+                    }
+                    setSearchablePicker({ field: null, searchQuery: "" });
+                  }}
+                >
+                  <Text style={styles.searchableItemText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.searchableEmpty}>
+                  <Text style={styles.searchableEmptyText}>
+                    No results found
+                  </Text>
+                </View>
+              }
+            />
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalButtonGhost]}
+              onPress={() =>
+                setSearchablePicker({ field: null, searchQuery: "" })
+              }
+            >
+              <Text style={styles.modalButtonGhostText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -559,9 +636,16 @@ const styles = StyleSheet.create({
     borderColor: "rgba(59, 130, 246, 0.35)",
     overflow: "hidden",
     backgroundColor: "rgba(15, 23, 42, 0.9)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "center",
   },
   picker: {
     color: "#f8fafc",
+  },
+  pickerText: {
+    color: "#f8fafc",
+    fontSize: 16,
   },
   modalButtons: {
     flexDirection: "row",
@@ -589,6 +673,59 @@ const styles = StyleSheet.create({
     color: "#cbd5f5",
     fontSize: 15,
     fontWeight: "600",
+  },
+  searchableModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(2, 6, 23, 0.72)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  searchableModalBox: {
+    backgroundColor: "rgba(15, 23, 42, 0.96)",
+    borderRadius: 24,
+    padding: 24,
+    width: "100%",
+    maxHeight: "80%",
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "rgba(37, 99, 235, 0.25)",
+  },
+  searchableModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  searchInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.35)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#f8fafc",
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+  },
+  searchableList: {
+    maxHeight: 300,
+  },
+  searchableItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.1)",
+  },
+  searchableItemText: {
+    color: "#f8fafc",
+    fontSize: 16,
+  },
+  searchableEmpty: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  searchableEmptyText: {
+    color: "#94a3b8",
+    fontSize: 14,
   },
 });
 

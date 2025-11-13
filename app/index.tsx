@@ -2,19 +2,23 @@ import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+const documentDir = (FileSystem as any).documentDirectory;
+const cacheDir = (FileSystem as any).cacheDirectory;
 
 const HomeScreen = () => {
   const router = useRouter();
@@ -89,17 +93,8 @@ const HomeScreen = () => {
     [locations]
   );
 
-  const handleSaveToDevice = useCallback(async (record: any) => {
+  const handleShare = useCallback(async (record: any) => {
     try {
-      const fsModule = FileSystem as Record<string, unknown>;
-      const documentDir = fsModule.documentDirectory as string | undefined;
-      const cacheDir = fsModule.cacheDirectory as string | undefined;
-      const baseDirectory = documentDir ?? cacheDir;
-
-      if (!baseDirectory) {
-        throw new Error("No writable directory available on this platform.");
-      }
-
       const rawName = record?.meta?.Name ?? "recording";
       const safeName =
         rawName
@@ -111,40 +106,54 @@ const HomeScreen = () => {
           .slice(0, 40) || "recording";
       const timeStamp = new Date().toISOString().replace(/[:.]/g, "-");
       const fileName = `${timeStamp}-${safeName}.json`;
+      const jsonContent = JSON.stringify(record, null, 2);
+
+      // ✅ Web: trigger browser download
+      if (Platform.OS === "web") {
+        const blob = new Blob([jsonContent], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        Alert.alert("Shared", `Downloaded ${fileName} to your device.`);
+        return;
+      }
+
+      // ✅ Native (Android / iOS): Create file and share
+      const baseDirectory = documentDir ?? cacheDir;
+
+      if (!baseDirectory) {
+        throw new Error("No writable directory available on this platform.");
+      }
+
       const fileUri = `${baseDirectory}${fileName}`;
 
-      await FileSystem.writeAsStringAsync(
-        fileUri,
-        JSON.stringify(record, null, 2)
-      );
+      await FileSystem.writeAsStringAsync(fileUri, jsonContent);
 
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (permission.status !== "granted") {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
         Alert.alert(
-          "Permission needed",
-          "Unable to save file without media library permission."
+          "Sharing not available",
+          "Sharing is not available on this device."
         );
         return;
       }
 
-      const asset = await MediaLibrary.createAssetAsync(fileUri);
-      await MediaLibrary.createAlbumAsync(
-        "Location Tracker",
-        asset,
-        false
-      ).catch(() => {});
-
-      Alert.alert(
-        "Saved locally",
-        `Stored ${
-          record?.meta?.Name ?? "record"
-        } as ${fileName} in your device library.`
-      );
+      await Sharing.shareAsync(fileUri, {
+        mimeType: "application/json",
+        dialogTitle: `Share ${record?.meta?.Name ?? "recording"}`,
+      });
     } catch (error) {
-      console.error("Failed to save recording:", error);
+      console.error("Failed to share recording:", error);
       Alert.alert(
-        "Save failed",
-        "We couldn't write the file to device storage. Please try again."
+        "Share failed",
+        "We couldn't share the file. Please try again."
       );
     }
   }, []);
@@ -316,10 +325,10 @@ const HomeScreen = () => {
                   <Text style={styles.actionButtonText}>Upload</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.saveButton]}
-                  onPress={() => handleSaveToDevice(item)}
+                  style={[styles.actionButton, styles.shareButton]}
+                  onPress={() => handleShare(item)}
                 >
-                  <Text style={styles.actionButtonText}>Save</Text>
+                  <Text style={styles.actionButtonText}>Share</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.deleteButton]}
@@ -485,7 +494,7 @@ const styles = StyleSheet.create({
   uploadButton: {
     backgroundColor: "rgba(16, 185, 129, 0.9)",
   },
-  saveButton: {
+  shareButton: {
     backgroundColor: "rgba(99, 102, 241, 0.9)",
   },
   deleteButton: {
