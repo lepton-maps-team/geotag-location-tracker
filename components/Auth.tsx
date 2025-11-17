@@ -1,7 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -21,6 +22,7 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = useCallback(async () => {
     const trimmedUsername = username.trim();
@@ -81,47 +83,63 @@ const Auth = () => {
           contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.hero}>
-            <Text style={styles.heroTitle}>Welcome back</Text>
-            <Text style={styles.heroSubtitle}>
-              Sign in to continue tracking field locations for your projects.
-            </Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Sign in</Text>
-            <View style={styles.inputs}>
+          <Text style={styles.heading}>Log in</Text>
+
+          <View style={styles.form}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Email</Text>
               <TextInput
-                placeholder="Username"
-                placeholderTextColor="#94a3b8"
+                placeholder="hello@company.com"
+                placeholderTextColor="#6b7280"
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="email-address"
                 value={username}
                 onChangeText={setUsername}
                 style={styles.input}
                 editable={!loading}
               />
-              <TextInput
-                placeholder="Password"
-                placeholderTextColor="#94a3b8"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-                style={styles.input}
-                editable={!loading}
-              />
             </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordRow}>
+                <TextInput
+                  placeholder="Your password"
+                  placeholderTextColor="#6b7280"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={setPassword}
+                  style={[styles.input, styles.passwordInput]}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((s) => !s)}
+                  style={styles.eyeButton}
+                  disabled={loading}
+                >
+                  <MaterialIcons
+                    name={showPassword ? "visibility-off" : "visibility"}
+                    size={20}
+                    color="#9ca3af"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {error ? (
               <View style={styles.errorBanner}>
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
+
             <TouchableOpacity
               onPress={handleLogin}
               style={[styles.button, loading && styles.buttonDisabled]}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color="#111827" />
               ) : (
                 <Text style={styles.buttonText}>Continue</Text>
               )}
@@ -136,7 +154,7 @@ const Auth = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: "black",
   },
   flex: {
     flex: 1,
@@ -147,39 +165,21 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     gap: 28,
   },
-  hero: {
-    gap: 12,
-  },
-  heroTitle: {
-    fontSize: 32,
+  heading: {
+    color: "white",
+    fontSize: 24,
     fontWeight: "700",
-    color: "#e2e8f0",
   },
-  heroSubtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#94a3b8",
+  form: {
+    gap: 16,
+    marginTop: 8,
   },
-  card: {
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
-    borderRadius: 18,
-    padding: 24,
-    gap: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 10,
+  field: {
+    gap: 8,
   },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#f1f5f9",
-  },
-  inputs: {
-    gap: 14,
+  label: {
+    color: "#9ca3af",
+    fontSize: 14,
   },
   input: {
     flex: 1,
@@ -192,6 +192,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(148, 163, 184, 0.25)",
   },
+  passwordRow: {
+    position: "relative",
+    justifyContent: "center",
+  },
+  passwordInput: {
+    paddingRight: 44,
+  },
+  eyeButton: {
+    position: "absolute",
+    right: 10,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  eyeText: {
+    fontSize: 16,
+    color: "#9ca3af",
+  },
   errorBanner: {
     backgroundColor: "rgba(248, 113, 113, 0.15)",
     borderRadius: 10,
@@ -201,7 +220,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(248, 113, 113, 0.4)",
   },
   button: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "white",
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
@@ -215,7 +234,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   buttonText: {
-    color: "#fff",
+    color: "#111827",
     fontSize: 16,
     fontWeight: "600",
   },

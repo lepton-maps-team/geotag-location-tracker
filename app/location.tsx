@@ -1,6 +1,6 @@
 import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Picker } from "@react-native-picker/picker";
+import SearchableDropdown from "react-native-searchable-dropdown";
 import * as Location from "expo-location";
 import React, { useMemo, useState } from "react";
 import {
@@ -59,17 +59,13 @@ const LocationScreen: React.FC = () => {
   const recordingSummary = useMemo(() => {
     if (!path.length) return "No points recorded yet.";
     const points = path.length;
-    return `${points} point${
-      points === 1 ? "" : "s"
-    } captured in this session.`;
+    return `${points} point${points === 1 ? "" : "s"} captured in this session.`;
   }, [path.length]);
 
-  // Ask for metadata first
   const handleStartPress = () => {
     setShowDialog(true);
   };
 
-  // Start location recording
   const startRecording = async () => {
     setShowDialog(false);
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -85,7 +81,7 @@ const LocationScreen: React.FC = () => {
       {
         accuracy: Location.Accuracy.Highest,
         distanceInterval: 0,
-        timeInterval: 0, // only on movement
+        timeInterval: 0,
       },
       (loc: Location.LocationObject) => {
         setPath((prev) => {
@@ -99,13 +95,12 @@ const LocationScreen: React.FC = () => {
           setLocation(data);
           return [...prev, data];
         });
-      }
+      },
     );
 
     setSubscription(sub);
   };
 
-  // Stop and save session
   const stopRecording = async () => {
     setIsRecording(false);
     if (subscription) {
@@ -126,7 +121,7 @@ const LocationScreen: React.FC = () => {
 
       Alert.alert(
         "Recording Saved",
-        `Saved ${path.length} points for ${meta.Name || "Unnamed"}`
+        `Saved ${path.length} points for ${meta.Name || "Unnamed"}`,
       );
     } catch (error) {
       console.error("Error saving data:", error);
@@ -134,7 +129,6 @@ const LocationScreen: React.FC = () => {
     }
   };
 
-  // Validate dialog fields before starting
   const handleDialogStart = () => {
     if (!meta.Name || !meta.State || !meta.District) {
       Alert.alert("Missing info", "Please fill Name, State, and District.");
@@ -149,14 +143,15 @@ const LocationScreen: React.FC = () => {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {/* HEADER */}
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
             <Text style={styles.heroTitle}>Live Location Tracker</Text>
             <Text style={styles.heroSubtitle}>
-              Capture GPS points with rich metadata to build precise field
-              sessions.
+              Capture GPS points with rich metadata.
             </Text>
           </View>
+
           <View
             style={[
               styles.statusPill,
@@ -177,12 +172,14 @@ const LocationScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* ERROR */}
         {errorMsg ? (
           <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{errorMsg}</Text>
           </View>
         ) : null}
 
+        {/* CURRENT LOCATION CARD */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Current position</Text>
           {location ? (
@@ -191,16 +188,17 @@ const LocationScreen: React.FC = () => {
                 <Text style={styles.metricLabel}>Latitude</Text>
                 <Text style={styles.metricValue}>{location.Latitude}</Text>
               </View>
+
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Longitude</Text>
                 <Text style={styles.metricValue}>{location.Longitude}</Text>
               </View>
+
               <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Accuracy (m)</Text>
-                <Text style={styles.metricValue}>
-                  {location.Accuracy ?? "—"}
-                </Text>
+                <Text style={styles.metricLabel}>Accuracy</Text>
+                <Text style={styles.metricValue}>{location.Accuracy}</Text>
               </View>
+
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Timestamp</Text>
                 <Text style={styles.metricValue}>{location.Timestamp}</Text>
@@ -211,11 +209,13 @@ const LocationScreen: React.FC = () => {
           )}
         </View>
 
+        {/* SUMMARY */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Session summary</Text>
           <Text style={styles.summaryText}>{recordingSummary}</Text>
         </View>
 
+        {/* ACTIONS */}
         <View style={styles.actions}>
           {!isRecording ? (
             <TouchableOpacity
@@ -229,121 +229,139 @@ const LocationScreen: React.FC = () => {
               style={[styles.primaryButton, styles.stopButton]}
               onPress={stopRecording}
             >
-              <Text style={styles.primaryButtonText}>Stop &amp; save</Text>
+              <Text style={styles.primaryButtonText}>Stop & save</Text>
             </TouchableOpacity>
           )}
         </View>
       </ScrollView>
 
+      {/* METADATA MODAL */}
       <Modal visible={showDialog} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Session details</Text>
             <Text style={styles.modalSubtitle}>
-              Provide the contextual metadata to tag this recording.
+              Provide metadata before recording.
             </Text>
 
+            {/* Session Name */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>Session name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Sample Village Visit"
+                placeholder="e.g. Field Survey"
                 placeholderTextColor="#94a3b8"
                 value={meta.Name}
                 onChangeText={(t) => setMeta({ ...meta, Name: t })}
               />
             </View>
 
+            {/* STATE - SEARCHABLE */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>State *</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.State}
-                  onValueChange={(v) => setMeta({ ...meta, State: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select state" value="" />
-                  {states.map((state) => (
-                    <Picker.Item key={state} label={state} value={state} />
-                  ))}
-                </Picker>
-              </View>
+              <SearchableDropdown
+                items={states.map((s) => ({ id: s, name: s }))}
+                defaultIndex={states.findIndex((s) => s === meta.State)}
+                textInputProps={{
+                  placeholder: "Select state",
+                  value: meta.State, // <-- selected value shows here
+                  onChangeText: () => {},
+                }}
+                value={meta.State}
+                onItemSelect={(item) => setMeta({ ...meta, State: item.name })}
+                placeholder="Select state"
+                textInputStyle={styles.input}
+                itemTextStyle={{ color: "white" }}
+                itemStyle={styles.dropdownItem}
+                itemsContainerStyle={{ maxHeight: 180 }}
+              />
             </View>
 
+            {/* DISTRICT - SEARCHABLE */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>District *</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.District}
-                  onValueChange={(v) => setMeta({ ...meta, District: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select district" value="" />
-                  {districts.map((district) => (
-                    <Picker.Item
-                      key={district}
-                      label={district}
-                      value={district}
-                    />
-                  ))}
-                </Picker>
-              </View>
+              <SearchableDropdown
+                items={districts.map((d) => ({ id: d, name: d }))}
+                defaultIndex={districts.findIndex((s) => s === meta.District)}
+                textInputProps={{
+                  placeholder: "Select district",
+                  value: meta.District, // <-- selected value shows here
+                  onChangeText: () => {},
+                }}
+                onItemSelect={(item) =>
+                  setMeta({ ...meta, District: item.name })
+                }
+                placeholder="Select district"
+                textInputStyle={styles.input}
+                itemTextStyle={{ color: "#fff" }}
+                itemStyle={styles.dropdownItem}
+                itemsContainerStyle={{ maxHeight: 180 }}
+              />
             </View>
 
+            {/* BLOCK - SEARCHABLE */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>Block</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.Block}
-                  onValueChange={(v) => setMeta({ ...meta, Block: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select block" value="" />
-                  {blocks.map((block) => (
-                    <Picker.Item key={block} label={block} value={block} />
-                  ))}
-                </Picker>
-              </View>
+              <SearchableDropdown
+                items={blocks.map((b) => ({ id: b, name: b }))}
+                defaultIndex={blocks.findIndex((b) => b === meta.Block)}
+                textInputProps={{
+                  placeholder: "Select block",
+                  value: meta.Block, // <-- selected value shows here
+                  onChangeText: () => {},
+                }}
+                onItemSelect={(item) => setMeta({ ...meta, Block: item.name })}
+                placeholder="Select block"
+                textInputStyle={styles.input}
+                itemTextStyle={{ color: "#fff" }}
+                itemStyle={styles.dropdownItem}
+                itemsContainerStyle={{ maxHeight: 180 }}
+              />
             </View>
 
+            {/* RING - SEARCHABLE */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>Ring</Text>
-              <View style={styles.pickerWrapper}>
-                <Picker
-                  selectedValue={meta.Ring}
-                  onValueChange={(v) => setMeta({ ...meta, Ring: v })}
-                  dropdownIconColor="#e2e8f0"
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Select ring" value="" />
-                  <Picker.Item label="R1" value="R1" />
-                  <Picker.Item label="R2" value="R2" />
-                  <Picker.Item label="R3" value="R3" />
-                  <Picker.Item label="R4" value="R4" />
-                  <Picker.Item label="R5" value="R5" />
-                  <Picker.Item label="R6" value="R6" />
-                  <Picker.Item label="R7" value="R7" />
-                  <Picker.Item label="R8" value="R8" />
-                  <Picker.Item label="R9" value="R9" />
-                  <Picker.Item label="R10" value="R10" />
-                </Picker>
-              </View>
+              <SearchableDropdown
+                items={[
+                  "R1",
+                  "R2",
+                  "R3",
+                  "R4",
+                  "R5",
+                  "R6",
+                  "R7",
+                  "R8",
+                  "R9",
+                  "R10",
+                ].map((r) => ({ id: r, name: r }))}
+                textInputProps={{
+                  placeholder: "Select ring",
+                  value: meta.Ring, // <-- selected value shows here
+                  onChangeText: () => {},
+                }}
+                onItemSelect={(item) => setMeta({ ...meta, Ring: item.name })}
+                placeholder="Select ring"
+                textInputStyle={styles.input}
+                itemTextStyle={{ color: "#fff" }}
+                itemStyle={styles.dropdownItem}
+                itemsContainerStyle={{ maxHeight: 180 }}
+              />
             </View>
 
+            {/* CHILD RING */}
             <View style={styles.fieldGroup}>
               <Text style={styles.inputLabel}>Child ring</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Optional detail"
+                placeholder="Optional"
                 placeholderTextColor="#94a3b8"
                 value={meta.ChildRing}
                 onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
               />
             </View>
 
+            {/* BUTTONS */}
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.modalButtonGhost]}
@@ -351,6 +369,7 @@ const LocationScreen: React.FC = () => {
               >
                 <Text style={styles.modalButtonGhostText}>Cancel</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.modalButton}
                 onPress={handleDialogStart}
@@ -490,7 +509,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   primaryButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "white",
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
@@ -505,19 +524,19 @@ const styles = StyleSheet.create({
     shadowColor: "#b91c1c",
   },
   primaryButtonText: {
-    color: "#f8fafc",
+    color: "black",
     fontSize: 16,
     fontWeight: "700",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(2, 6, 23, 0.72)",
+    backgroundColor: "#0a0a0a",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
   },
   modalBox: {
-    backgroundColor: "rgba(15, 23, 42, 0.96)",
+    backgroundColor: "#222222",
     borderRadius: 24,
     padding: 24,
     width: "100%",
@@ -533,7 +552,6 @@ const styles = StyleSheet.create({
   modalSubtitle: {
     fontSize: 14,
     color: "#94a3b8",
-    lineHeight: 20,
   },
   fieldGroup: {
     gap: 8,
@@ -541,27 +559,24 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 13,
     color: "#cbd5f5",
-    letterSpacing: 0.4,
   },
   input: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.35)",
+    borderColor: "#222222",
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: "#f8fafc",
-    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    color: "white",
+    backgroundColor: "#141414",
   },
-  pickerWrapper: {
-    borderRadius: 12,
+  dropdownItem: {
+    padding: 10,
+    marginTop: 2,
+    backgroundColor: "#141414",
+    borderColor: "#333",
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.35)",
-    overflow: "hidden",
-    backgroundColor: "rgba(15, 23, 42, 0.9)",
-  },
-  picker: {
-    color: "#f8fafc",
+    borderRadius: 8,
   },
   modalButtons: {
     flexDirection: "row",
@@ -570,13 +585,13 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
-    backgroundColor: "#2563eb",
+    backgroundColor: "white",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
   },
   modalButtonText: {
-    color: "#f8fafc",
+    color: "black",
     fontSize: 15,
     fontWeight: "600",
   },

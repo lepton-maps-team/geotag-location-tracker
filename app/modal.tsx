@@ -42,7 +42,7 @@ export default function ModalScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.95)",
+    backgroundColor: "#0a0a0a",
   },
   container: {
     flex: 1,
@@ -50,12 +50,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   card: {
-    backgroundColor: "rgba(2, 6, 23, 0.92)",
+    backgroundColor: "#0a0a0a",
     padding: 24,
     borderRadius: 24,
     gap: 18,
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.25)",
+    borderColor: "#222222",
     shadowColor: "#000",
     shadowOpacity: 0.35,
     shadowRadius: 32,

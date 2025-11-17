@@ -1,8 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import * as FileSystem from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
+import { File, Directory, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
@@ -20,6 +19,9 @@ const HomeScreen = () => {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [locations, setLocations] = useState<any[]>([]);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -36,12 +38,13 @@ const HomeScreen = () => {
       if (record?.uploaded) {
         Alert.alert(
           "Already uploaded",
-          "This session has already been uploaded to Supabase."
+          "This session has already been uploaded to Supabase.",
         );
         return;
       }
 
       try {
+        setUploadingIndex(index);
         const storedUser = await AsyncStorage.getItem("user");
         const user = JSON.parse(storedUser as string);
         const track = record.path;
@@ -82,70 +85,32 @@ const HomeScreen = () => {
         console.error("Failed to upload recording:", error);
         Alert.alert(
           "Upload failed",
-          "We couldn't upload the file. Please try again."
+          "We couldn't upload the file. Please try again.",
         );
+      } finally {
+        setUploadingIndex(null);
       }
     },
-    [locations]
+    [locations],
   );
 
-  const handleSaveToDevice = useCallback(async (record: any) => {
+  const handleSaveToDevice = useCallback(async (record: any, index: number) => {
     try {
-      const fsModule = FileSystem as Record<string, unknown>;
-      const documentDir = fsModule.documentDirectory as string | undefined;
-      const cacheDir = fsModule.cacheDirectory as string | undefined;
-      const baseDirectory = documentDir ?? cacheDir;
+      setSavingIndex(index);
+      const randomId = Math.random().toString(36).substring(2, 10);
+      const fileName = `${record?.meta?.Name || "record"}-${randomId}.txt`;
 
-      if (!baseDirectory) {
-        throw new Error("No writable directory available on this platform.");
-      }
+      const file = new File(Paths.cache, fileName);
+      file.create();
+      file.write(JSON.stringify(record));
 
-      const rawName = record?.meta?.Name ?? "recording";
-      const safeName =
-        rawName
-          .toString()
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 40) || "recording";
-      const timeStamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const fileName = `${timeStamp}-${safeName}.json`;
-      const fileUri = `${baseDirectory}${fileName}`;
-
-      await FileSystem.writeAsStringAsync(
-        fileUri,
-        JSON.stringify(record, null, 2)
-      );
-
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (permission.status !== "granted") {
-        Alert.alert(
-          "Permission needed",
-          "Unable to save file without media library permission."
-        );
-        return;
-      }
-
-      const asset = await MediaLibrary.createAssetAsync(fileUri);
-      await MediaLibrary.createAlbumAsync(
-        "Location Tracker",
-        asset,
-        false
-      ).catch(() => {});
-
-      Alert.alert(
-        "Saved locally",
-        `Stored ${
-          record?.meta?.Name ?? "record"
-        } as ${fileName} in your device library.`
-      );
-    } catch (error) {
-      console.error("Failed to save recording:", error);
-      Alert.alert(
-        "Save failed",
-        "We couldn't write the file to device storage. Please try again."
-      );
+      console.log(file.textSync());
+      alert(`File saved successfully!\n\nName: ${fileName}`);
+    } catch (error: any) {
+      console.error(error);
+      alert(`Failed to save file.\n\nError: ${error.message || error}`);
+    } finally {
+      setSavingIndex(null);
     }
   }, []);
 
@@ -161,27 +126,30 @@ const HomeScreen = () => {
             style: "destructive",
             onPress: async () => {
               try {
+                setDeletingIndex(indexToRemove);
                 const updated = locations.filter(
-                  (_, idx) => idx !== indexToRemove
+                  (_, idx) => idx !== indexToRemove,
                 );
                 setLocations(updated);
                 await AsyncStorage.setItem(
                   "RECORDINGS",
-                  JSON.stringify(updated)
+                  JSON.stringify(updated),
                 );
               } catch (error) {
                 console.error("Failed to delete recording:", error);
                 Alert.alert(
                   "Error",
-                  "Failed to delete recording. Please try again."
+                  "Failed to delete recording. Please try again.",
                 );
+              } finally {
+                setDeletingIndex(null);
               }
             },
           },
-        ]
+        ],
       );
     },
-    [locations]
+    [locations],
   );
 
   // ✅ Auth check
@@ -213,7 +181,7 @@ const HomeScreen = () => {
       return () => {
         isActive = false;
       };
-    }, [router])
+    }, [router]),
   );
 
   // ✅ Fetch stored locations
@@ -229,7 +197,7 @@ const HomeScreen = () => {
         setLocations(normalized);
       };
       fetchLocations();
-    }, [])
+    }, []),
   );
 
   if (checkingAuth) {
@@ -312,20 +280,37 @@ const HomeScreen = () => {
                 <TouchableOpacity
                   style={[styles.actionButton, styles.uploadButton]}
                   onPress={() => handleUpload(item, index)}
+                  disabled={uploadingIndex === index}
                 >
-                  <Text style={styles.actionButtonText}>Upload</Text>
+                  {uploadingIndex === index ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.actionButtonText}>Upload</Text>
+                  )}
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.actionButton, styles.saveButton]}
-                  onPress={() => handleSaveToDevice(item)}
+                  onPress={() => handleSaveToDevice(item, index)}
+                  disabled={savingIndex === index}
                 >
-                  <Text style={styles.actionButtonText}>Save</Text>
+                  {savingIndex === index ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.actionButtonText}>Save</Text>
+                  )}
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.actionButton, styles.deleteButton]}
                   onPress={() => handleDelete(index)}
+                  disabled={deletingIndex === index}
                 >
-                  <Text style={styles.actionButtonText}>Delete</Text>
+                  {deletingIndex === index ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.actionButtonText}>Delete</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -339,7 +324,7 @@ const HomeScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: "black",
   },
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   container: {
@@ -347,10 +332,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 24,
     gap: 20,
-    backgroundColor: "#0f172a",
+    backgroundColor: "black",
   },
   hero: {
-    backgroundColor: "#1e293b",
+    backgroundColor: "black",
     borderRadius: 20,
     padding: 20,
     gap: 20,
@@ -363,12 +348,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: "rgba(148, 163, 184, 0.16)",
+    backgroundColor: "white",
     borderWidth: 1,
+    color: "black",
     borderColor: "rgba(148, 163, 184, 0.25)",
   },
   logoutButtonText: {
-    color: "#f8fafc",
+    color: "black",
     fontSize: 14,
     fontWeight: "500",
   },
@@ -386,7 +372,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   primaryButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "white",
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 8,
@@ -397,7 +383,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  primaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  primaryButtonText: {
+    color: "black",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   list: {
     flexGrow: 1,
   },
