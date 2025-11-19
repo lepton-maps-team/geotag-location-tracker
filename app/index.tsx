@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import { File, Directory, Paths } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
@@ -38,7 +38,7 @@ const HomeScreen = () => {
       if (record?.uploaded) {
         Alert.alert(
           "Already uploaded",
-          "This session has already been uploaded to Supabase.",
+          "This session has already been uploaded to Supabase."
         );
         return;
       }
@@ -85,13 +85,13 @@ const HomeScreen = () => {
         console.error("Failed to upload recording:", error);
         Alert.alert(
           "Upload failed",
-          "We couldn't upload the file. Please try again.",
+          "We couldn't upload the file. Please try again."
         );
       } finally {
         setUploadingIndex(null);
       }
     },
-    [locations],
+    [locations]
   );
 
   const handleSaveToDevice = useCallback(async (record: any, index: number) => {
@@ -104,7 +104,6 @@ const HomeScreen = () => {
       file.create();
       file.write(JSON.stringify(record));
 
-      console.log(file.textSync());
       alert(`File saved successfully!\n\nName: ${fileName}`);
     } catch (error: any) {
       console.error(error);
@@ -128,28 +127,28 @@ const HomeScreen = () => {
               try {
                 setDeletingIndex(indexToRemove);
                 const updated = locations.filter(
-                  (_, idx) => idx !== indexToRemove,
+                  (_, idx) => idx !== indexToRemove
                 );
                 setLocations(updated);
                 await AsyncStorage.setItem(
                   "RECORDINGS",
-                  JSON.stringify(updated),
+                  JSON.stringify(updated)
                 );
               } catch (error) {
                 console.error("Failed to delete recording:", error);
                 Alert.alert(
                   "Error",
-                  "Failed to delete recording. Please try again.",
+                  "Failed to delete recording. Please try again."
                 );
               } finally {
                 setDeletingIndex(null);
               }
             },
           },
-        ],
+        ]
       );
     },
-    [locations],
+    [locations]
   );
 
   // ✅ Auth check
@@ -181,7 +180,7 @@ const HomeScreen = () => {
       return () => {
         isActive = false;
       };
-    }, [router]),
+    }, [router])
   );
 
   // ✅ Fetch stored locations
@@ -197,7 +196,7 @@ const HomeScreen = () => {
         setLocations(normalized);
       };
       fetchLocations();
-    }, []),
+    }, [])
   );
 
   if (checkingAuth) {
