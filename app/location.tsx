@@ -6,9 +6,9 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from "expo-camera";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
-import * as MediaLibrary from "expo-media-library";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -75,6 +75,21 @@ const LocationScreen: React.FC = () => {
   const [isVideoRecording, setIsVideoRecording] = useState(false);
   const videoRecordingPromiseRef = useRef<Promise<any> | null>(null);
   const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [recordStartTime, setRecordStartTime] = useState<number | null>(null);
+  const [recordElapsed, setRecordElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!isRecording || recordStartTime == null) {
+      setRecordElapsed(0);
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setRecordElapsed(Math.floor((Date.now() - recordStartTime) / 1000));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [isRecording, recordStartTime]);
 
   const ensureLocationPermission = async () => {
     try {
@@ -147,14 +162,7 @@ const LocationScreen: React.FC = () => {
         }
       })
       .catch((err: any) => {
-        const message = String(err?.message ?? err);
-        if (
-          !message.includes(
-            "Recording was stopped before any data could be produced"
-          )
-        ) {
-          console.error("Video recording error:", err);
-        }
+        console.error("Video recording error:", err);
       })
       .finally(() => {
         setIsVideoRecording(false);
@@ -199,34 +207,39 @@ const LocationScreen: React.FC = () => {
     setIsRecording(true);
     setPath([]);
     setLocation(null);
+    setRecordStartTime(Date.now());
   };
 
   const stopRecording = async () => {
     setIsRecording(false);
+    setRecordStartTime(null);
+    setPath([]);
+    setLocation(null);
 
     try {
-      // Stop video recording if it's still running and capture final URI
       let finalVideoUri: string | null = videoUri;
 
+      // --- STOP RECORDING SAFELY ---
       try {
         if (
           cameraRef.current &&
           isVideoRecording &&
           videoRecordingPromiseRef.current
         ) {
+          console.log("stopping recording");
           cameraRef.current.stopRecording();
-          const video: any = await videoRecordingPromiseRef.current;
+        }
+
+        if (videoRecordingPromiseRef.current) {
+          const video = await videoRecordingPromiseRef.current;
+
           if (video?.uri) {
-            // Save video to the device's media library (gallery)
-            await MediaLibrary.createAssetAsync(video.uri);
-            finalVideoUri = video.uri;
+            finalVideoUri = video.uri; // raw Expo Go cache path
             setVideoUri(video.uri);
           }
         }
       } catch (videoError: any) {
         const message = String(videoError?.message ?? videoError);
-        // Ignore the benign "stopped before any data" case so that
-        // very short recordings are still treated as valid sessions.
         if (
           !message.includes(
             "Recording was stopped before any data could be produced"
@@ -239,6 +252,36 @@ const LocationScreen: React.FC = () => {
         videoRecordingPromiseRef.current = null;
       }
 
+      // --- MOVE VIDEO TO DOCUMENT DIRECTORY (SHAREABLE) ---
+      if (finalVideoUri) {
+        try {
+          const videosDir = FileSystem.documentDirectory + "videos/";
+          const info = await FileSystem.getInfoAsync(videosDir);
+
+          if (!info.exists) {
+            await FileSystem.makeDirectoryAsync(videosDir, {
+              intermediates: true,
+            });
+          }
+
+          const fileName = finalVideoUri.split("/").pop();
+          const dest = videosDir + fileName;
+
+          await FileSystem.moveAsync({
+            from: finalVideoUri,
+            to: dest,
+          });
+
+          // 🔥 CRITICAL FIX — update finalVideoUri so later sharing works
+          finalVideoUri = dest;
+
+          setVideoUri(dest);
+        } catch (fsError) {
+          console.error("Error while checking/saving video file:", fsError);
+        }
+      }
+
+      // --- SAVE METADATA + VIDEO PATH ---
       const existing = await AsyncStorage.getItem(STORAGE_KEY);
       const oldSessions: RecordingSession[] = existing
         ? JSON.parse(existing)
@@ -247,14 +290,14 @@ const LocationScreen: React.FC = () => {
       const newSession: RecordingSession = {
         meta: {
           ...meta,
-          VideoPath: finalVideoUri ?? null,
+          VideoPath: finalVideoUri ?? null, // 🔥 use updated shareable path
         },
         path,
         uploaded: false,
-        videoUri: finalVideoUri,
+        videoUri: finalVideoUri, // 🔥 save correct shareable URI
       };
-      const updated = [...oldSessions, newSession];
 
+      const updated = [...oldSessions, newSession];
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
       Alert.alert(
@@ -300,11 +343,18 @@ const LocationScreen: React.FC = () => {
 
           <View style={styles.cameraOverlay}>
             <CameraView
+              mode="video"
               ref={cameraRef}
               style={styles.camera}
               facing="back"
               onCameraReady={handleCameraReady}
             />
+
+            <View style={styles.cameraTimestamp}>
+              <Text style={styles.cameraTimestampText}>
+                {recordElapsed > 0 ? formatDuration(recordElapsed) : "00:00"}
+              </Text>
+            </View>
           </View>
         </View>
       </SafeAreaView>
@@ -900,6 +950,27 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  cameraTimestamp: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  cameraTimestampText: {
+    color: "#fefce8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
 });
+
+const formatDuration = (totalSeconds: number): string => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return `${pad(minutes)}:${pad(seconds)}`;
+};
 
 export default LocationScreen;

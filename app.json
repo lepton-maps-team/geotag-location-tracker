@@ -46,11 +46,19 @@
           }
         }
       ],
-      [ "expo-video", {
-       "supportsBackgroundPlayback": true,
-      "supportsPictureInPicture": true
-      }]
-     
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
+      [
+      "expo-secure-store",
+      {
+        "configureAndroidBackup": true
+      }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

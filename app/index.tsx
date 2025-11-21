@@ -96,6 +96,7 @@ const HomeScreen = () => {
   );
 
   const handleSaveToDevice = useCallback(async (record: any, index: number) => {
+    console.log(record.videoUri);
     try {
       setSavingIndex(index);
       const randomId = Math.random().toString(36).substring(2, 10);
@@ -109,8 +110,10 @@ const HomeScreen = () => {
 
       if (canShare) {
         try {
-          const res = await Sharing.shareAsync(fileUri);
-          console.log("shareAsync", res);
+          const res = await Sharing.shareAsync(record.videoUri!);
+          console.log("res", res);
+          //  Sharing.shareAsync(record.videoUri!);
+
           return true;
         } catch {
           return false;
