@@ -5,20 +5,16 @@ import {
 } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
-import { GluestackUIProvider } from '@/components/ui/gluestack-ui-provider';
-import '@/my-expo-app/global.css';
+import "@/my-expo-app/global.css";
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    
-    <GluestackUIProvider mode="dark">
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
@@ -30,7 +26,5 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
-    </GluestackUIProvider>
-  
   );
 }

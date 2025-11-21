@@ -1,6 +1,6 @@
 {
   "build": {
-    "production-apk": {
+    "local": {
       "android": {
         "buildType": "apk"
       }

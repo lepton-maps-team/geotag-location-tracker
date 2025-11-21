@@ -1,39 +1,27 @@
-export class KalmanFilter {
-  R: number;
-  Q: number;
-  A: number;
-  B: number;
-  C: number;
-  cov: number | null;
-  x: number | null;
+export class AdaptiveKalman {
+  private R = 0.0001; // measurement noise
+  private Q = 0.00001; // process noise
+  private x = 0;
+  private p = 1;
+  private k = 0;
+  private initialized = false;
 
-  constructor(R = 0.00001, Q = 0.001) {
-    this.R = R;
-    this.Q = Q;
-    this.A = 1;
-    this.B = 0;
-    this.C = 1;
-    this.cov = null;
-    this.x = null;
-  }
-
-  filter(z: number): number {
-    if (this.x === null) {
-      this.x = z;
-      this.cov = 1;
-      return this.x;
+  filter(value: number, accuracy: number | null) {
+    if (!this.initialized) {
+      this.x = value;
+      this.initialized = true;
+      return value;
     }
 
-    // prediction
-    const predX = this.A * this.x;
-    const predCov = this.A * this.cov! * this.A + this.R;
+    // GPS accuracy-based noise control
+    if (accuracy !== null && accuracy > 0) {
+      this.R = Math.max(0.0001, accuracy * accuracy * 0.000001);
+    }
 
-    // kalman gain
-    const K = (predCov * this.C) / (this.C * predCov * this.C + this.Q);
-
-    // correction
-    this.x = predX + K * (z - this.C * predX);
-    this.cov = predCov - K * this.C * predCov;
+    this.p = this.p + this.Q;
+    this.k = this.p / (this.p + this.R);
+    this.x = this.x + this.k * (value - this.x);
+    this.p = (1 - this.k) * this.p;
 
     return this.x;
   }

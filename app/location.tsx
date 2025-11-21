@@ -1,8 +1,6 @@
 import LocationMap from "@/components/LocationMap";
 import { blocks, districts, states } from "@/constants/lists";
-import { KalmanFilter } from "@/lib/filter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Location from "expo-location";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -55,15 +53,10 @@ const LocationScreen: React.FC = () => {
   });
   const [showDialog, setShowDialog] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [subscription, setSubscription] =
-    useState<Location.LocationSubscription | null>(null);
   const [searchablePicker, setSearchablePicker] = useState<{
     field: "State" | "District" | "Block" | "Ring" | null;
     searchQuery: string;
   }>({ field: null, searchQuery: "" });
-
-  const latFilter = React.useRef(new KalmanFilter()).current;
-  const lngFilter = React.useRef(new KalmanFilter()).current;
 
   const recordingSummary = useMemo(() => {
     if (!path.length) return "No points recorded yet.";
@@ -96,56 +89,16 @@ const LocationScreen: React.FC = () => {
     setShowDialog(true);
   };
 
-  const startRecording = async () => {
+  const startRecording = () => {
     setShowDialog(false);
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      setErrorMsg("Permission denied");
-      return;
-    }
-
+    setErrorMsg(null);
     setIsRecording(true);
     setPath([]);
-
-    const sub = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.BestForNavigation,
-        distanceInterval: 1,
-      },
-      (loc: Location.LocationObject) => {
-        const rawLat = loc.coords.latitude;
-        const rawLng = loc.coords.longitude;
-        const acc = loc.coords.accuracy ?? null;
-
-        // APPLY KALMAN FILTER
-        const smoothLat = parseFloat(latFilter.filter(rawLat).toFixed(6));
-        const smoothLng = parseFloat(lngFilter.filter(rawLng).toFixed(6));
-
-        setPath((prev) => {
-          const nextTimestamp = prev.length + 1;
-
-          const data: LocationData = {
-            Latitude: smoothLat,
-            Longitude: smoothLng,
-            Accuracy: acc,
-            Timestamp: nextTimestamp,
-          };
-
-          setLocation(data);
-          return [...prev, data];
-        });
-      }
-    );
-
-    setSubscription(sub);
+    setLocation(null);
   };
 
   const stopRecording = async () => {
     setIsRecording(false);
-    if (subscription) {
-      subscription.remove();
-      setSubscription(null);
-    }
 
     try {
       const existing = await AsyncStorage.getItem(STORAGE_KEY);
@@ -182,7 +135,10 @@ const LocationScreen: React.FC = () => {
       <SafeAreaView style={styles.safeArea}>
         <LocationMap
           locations={path}
-          currentLocation={location}
+          onNewLocation={(loc) => {
+            setLocation(loc);
+            setPath((prev) => [...prev, loc]);
+          }}
           onStopRecording={stopRecording}
         />
       </SafeAreaView>
