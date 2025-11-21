@@ -21,7 +21,8 @@ const HomeScreen = () => {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [locations, setLocations] = useState<any[]>([]);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
-  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [savingVideoIndex, setSavingVideoIndex] = useState<number | null>(null);
+  const [savingTrackIndex, setSavingTrackIndex] = useState<number | null>(null);
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
 
   const handleLogout = useCallback(async () => {
@@ -96,38 +97,77 @@ const HomeScreen = () => {
   );
 
   const handleSaveToDevice = useCallback(async (record: any, index: number) => {
-    console.log(record.videoUri);
     try {
-      setSavingIndex(index);
-      const randomId = Math.random().toString(36).substring(2, 10);
-      const fileName = `${record?.meta?.Name || "record"}-${randomId}.txt`;
+      setSavingVideoIndex(index);
 
-      const directoryUri = FileSystem.documentDirectory;
-      const fileUri = directoryUri + fileName;
+      if (!record.videoUri) {
+        Alert.alert(
+          "No video available",
+          "This session does not have an associated video file."
+        );
+        return;
+      }
 
-      FileSystem.writeAsStringAsync(fileUri, JSON.stringify(record));
       const canShare = await Sharing.isAvailableAsync();
 
-      if (canShare) {
-        try {
-          const res = await Sharing.shareAsync(record.videoUri!);
-          console.log("res", res);
-          //  Sharing.shareAsync(record.videoUri!);
-
-          return true;
-        } catch {
-          return false;
-        }
-      } else {
-        alert("You need to give permission to share.");
+      if (!canShare) {
+        Alert.alert(
+          "Sharing unavailable",
+          "Sharing is not available on this device."
+        );
+        return;
       }
+
+      await Sharing.shareAsync(record.videoUri);
     } catch (error: any) {
       console.error(error);
-      alert(`Failed to save file.\n\nError: ${error.message || error}`);
+      Alert.alert(
+        "Failed to share video",
+        error?.message || "Please try again."
+      );
     } finally {
-      setSavingIndex(null);
+      setSavingVideoIndex(null);
     }
   }, []);
+
+  const handleSaveToDevicePath = useCallback(
+    async (record: any, index: number) => {
+      try {
+        setSavingTrackIndex(index);
+
+        const track = record.path; // the array you want
+        console.log("Track:", track);
+
+        // Convert path array to readable text
+        const trackText = JSON.stringify(track, null, 2);
+
+        const randomId = Math.random().toString(36).substring(2, 10);
+        const fileName = `${record?.meta?.Name || "path"}-${randomId}.txt`;
+
+        const fileUri = FileSystem.documentDirectory + fileName;
+
+        await FileSystem.writeAsStringAsync(fileUri, trackText);
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          alert("Sharing is not available on this device.");
+          return false;
+        }
+
+        const result = await Sharing.shareAsync(fileUri);
+        console.log("Shared:", result);
+
+        return true;
+      } catch (error: any) {
+        console.error("Error saving path:", error);
+        alert(`Error: ${error.message}`);
+        return false;
+      } finally {
+        setSavingTrackIndex(null);
+      }
+    },
+    []
+  );
 
   const handleDelete = useCallback(
     (indexToRemove: number) => {
@@ -307,12 +347,28 @@ const HomeScreen = () => {
                 <TouchableOpacity
                   style={[styles.actionButton, styles.saveButton]}
                   onPress={() => handleSaveToDevice(item, index)}
-                  disabled={savingIndex === index}
+                  disabled={savingVideoIndex === index}
                 >
-                  {savingIndex === index ? (
+                  {savingVideoIndex === index ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.actionButtonText}>Save</Text>
+                    <Text style={styles.actionButtonTextSecondary}>
+                      Save Video
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.saveButton]}
+                  onPress={() => handleSaveToDevicePath(item, index)}
+                  disabled={savingTrackIndex === index}
+                >
+                  {savingTrackIndex === index ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.actionButtonTextSecondary}>
+                      Save Track
+                    </Text>
                   )}
                 </TouchableOpacity>
 
@@ -324,7 +380,7 @@ const HomeScreen = () => {
                   {deletingIndex === index ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.actionButtonText}>Delete</Text>
+                    <Text style={styles.actionButtonTextDanger}>Delete</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -479,27 +535,44 @@ const styles = StyleSheet.create({
   recordActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   actionButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 999,
     alignItems: "center",
+    borderWidth: 1,
   },
   uploadButton: {
-    backgroundColor: "rgba(16, 185, 129, 0.9)",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(148, 163, 184, 0.35)",
   },
   saveButton: {
-    backgroundColor: "rgba(99, 102, 241, 0.9)",
+    backgroundColor: "#020617",
+    borderColor: "rgba(148, 163, 184, 0.6)",
   },
   deleteButton: {
-    backgroundColor: "rgba(239, 68, 68, 0.9)",
+    backgroundColor: "#ef4444",
+    borderColor: "#b91c1c",
   },
   actionButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
+    color: "#020617",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  actionButtonTextSecondary: {
+    color: "#e5e7eb",
+    fontSize: 13,
     fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  actionButtonTextDanger: {
+    color: "#fef2f2",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
 });
 
