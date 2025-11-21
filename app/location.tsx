@@ -1,6 +1,7 @@
 import LocationMap from "@/components/LocationMap";
 import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -57,6 +58,29 @@ const LocationScreen: React.FC = () => {
     field: "State" | "District" | "Block" | "Ring" | null;
     searchQuery: string;
   }>({ field: null, searchQuery: "" });
+
+  const ensureLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        const message =
+          "Location permission is required to record a session. Please enable it in your device settings.";
+        setErrorMsg(message);
+        Alert.alert("Permission required", message);
+        return false;
+      }
+
+      setErrorMsg(null);
+      return true;
+    } catch (error) {
+      console.error("Error requesting location permission:", error);
+      const message = "Could not request location permission.";
+      setErrorMsg(message);
+      Alert.alert("Error", message);
+      return false;
+    }
+  };
 
   const recordingSummary = useMemo(() => {
     if (!path.length) return "No points recorded yet.";
@@ -121,9 +145,13 @@ const LocationScreen: React.FC = () => {
     }
   };
 
-  const handleDialogStart = () => {
+  const handleDialogStart = async () => {
     if (!meta.Name || !meta.State || !meta.District) {
       Alert.alert("Missing info", "Please fill Name, State, and District.");
+      return;
+    }
+    const hasPermission = await ensureLocationPermission();
+    if (!hasPermission) {
       return;
     }
     startRecording();

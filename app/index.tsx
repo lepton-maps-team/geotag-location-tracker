@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
-import { File, Paths } from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -100,11 +101,23 @@ const HomeScreen = () => {
       const randomId = Math.random().toString(36).substring(2, 10);
       const fileName = `${record?.meta?.Name || "record"}-${randomId}.txt`;
 
-      const file = new File(Paths.cache, fileName);
-      file.create();
-      file.write(JSON.stringify(record));
+      const directoryUri = FileSystem.documentDirectory;
+      const fileUri = directoryUri + fileName;
 
-      alert(`File saved successfully!\n\nName: ${fileName}`);
+      FileSystem.writeAsStringAsync(fileUri, JSON.stringify(record));
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (canShare) {
+        try {
+          const res = await Sharing.shareAsync(fileUri);
+          console.log("shareAsync", res);
+          return true;
+        } catch {
+          return false;
+        }
+      } else {
+        alert("You need to give permission to share.");
+      }
     } catch (error: any) {
       console.error(error);
       alert(`Failed to save file.\n\nError: ${error.message || error}`);

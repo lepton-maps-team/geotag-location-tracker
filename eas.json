@@ -1,9 +1,0 @@
-{
-  "build": {
-    "local": {
-      "android": {
-        "buildType": "apk"
-      }
-    }
-  }
-}

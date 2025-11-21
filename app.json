@@ -2,11 +2,11 @@
   "expo": {
     "name": "GeoTag location tracker",
     "slug": "location-tracker",
+    "scheme": "exp",
     "version": "1.0.0",
     "jsEngine": "jsc",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "locationtracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -59,9 +59,6 @@
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/a4b5db8d-23df-4af7-a61b-ee255cd5309a"
     }
   }
 }
