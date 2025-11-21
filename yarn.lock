@@ -3655,6 +3655,13 @@ expo-asset@~12.0.10:
     "@expo/image-utils" "^0.8.7"
     expo-constants "~18.0.10"
 
+expo-camera@~17.0.9:
+  version "17.0.9"
+  resolved "https://registry.yarnpkg.com/expo-camera/-/expo-camera-17.0.9.tgz#4447e63960c9b4485869e2f1fac0ef083c38669a"
+  integrity sha512-KgticPGurqEsaPBIwbG0T6mzAVnqZasDdM/6OoJt5zPh6tWB09+th6cBF1WafIBMPy8AWbfyUQSqQXqOrNJClg==
+  dependencies:
+    invariant "^2.2.4"
+
 expo-constants@~18.0.10:
   version "18.0.10"
   resolved "https://registry.npmjs.org/expo-constants/-/expo-constants-18.0.10.tgz"
@@ -3662,6 +3669,37 @@ expo-constants@~18.0.10:
   dependencies:
     "@expo/config" "~12.0.10"
     "@expo/env" "~2.0.7"
+
+expo-dev-client@~6.0.18:
+  version "6.0.18"
+  resolved "https://registry.yarnpkg.com/expo-dev-client/-/expo-dev-client-6.0.18.tgz#c296ca76691f7651fee14707bb8c1863f3744dd4"
+  integrity sha512-8QKWvhsoZpMkecAMlmWoRHnaTNiPS3aO7E42spZOMjyiaNRJMHZsnB8W2b63dt3Yg3oLyskLAoI8IOmnqVX8vA==
+  dependencies:
+    expo-dev-launcher "6.0.18"
+    expo-dev-menu "7.0.17"
+    expo-dev-menu-interface "2.0.0"
+    expo-manifests "~1.0.9"
+    expo-updates-interface "~2.0.0"
+
+expo-dev-launcher@6.0.18:
+  version "6.0.18"
+  resolved "https://registry.yarnpkg.com/expo-dev-launcher/-/expo-dev-launcher-6.0.18.tgz#04e1c5271df76192a3c57cc476145720e96c665e"
+  integrity sha512-JTtcIfNvHO9PTdRJLmHs+7HJILXXZjF95jxgzu6hsJrgsTg/AZDtEsIt/qa6ctEYQTqrLdsLDgDhiXVel3AoQA==
+  dependencies:
+    expo-dev-menu "7.0.17"
+    expo-manifests "~1.0.9"
+
+expo-dev-menu-interface@2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/expo-dev-menu-interface/-/expo-dev-menu-interface-2.0.0.tgz#c0d6db65eb4abc44a2701bc2303744619ad05ca6"
+  integrity sha512-BvAMPt6x+vyXpThsyjjOYyjwfjREV4OOpQkZ0tNl+nGpsPfcY9mc6DRACoWnH9KpLzyIt3BOgh3cuy/h/OxQjw==
+
+expo-dev-menu@7.0.17:
+  version "7.0.17"
+  resolved "https://registry.yarnpkg.com/expo-dev-menu/-/expo-dev-menu-7.0.17.tgz#4b04f860cd154386308bb31c5c9f29aeaa7a60a9"
+  integrity sha512-NIu7TdaZf+A8+DROa6BB6lDfxjXxwaD+Q8QbNSVa0E0x6yl3P0ZJ80QbD2cCQeBzlx3Ufd3hNhczQWk4+A29HQ==
+  dependencies:
+    expo-dev-menu-interface "2.0.0"
 
 expo-eas-client@~1.0.7:
   version "1.0.7"
@@ -3708,13 +3746,18 @@ expo-location@~19.0.7:
   resolved "https://registry.npmjs.org/expo-location/-/expo-location-19.0.7.tgz"
   integrity sha512-YNkh4r9E6ECbPkBCAMG5A5yHDgS0pw+Rzyd0l2ZQlCtjkhlODB55nMCKr5CZnUI0mXTkaSm8CwfoCO8n2MpYfg==
 
-expo-manifests@~1.0.8:
+expo-manifests@~1.0.8, expo-manifests@~1.0.9:
   version "1.0.9"
   resolved "https://registry.npmjs.org/expo-manifests/-/expo-manifests-1.0.9.tgz"
   integrity sha512-5uVgvIo0o+xBcEJiYn4uVh72QSIqyHePbYTWXYa4QamXd+AmGY/yWmtHaNqCqjsPLCwXyn4OxPr7jXJCeTWLow==
   dependencies:
     "@expo/config" "~12.0.10"
     expo-json-utils "~0.15.0"
+
+expo-media-library@~18.2.0:
+  version "18.2.0"
+  resolved "https://registry.yarnpkg.com/expo-media-library/-/expo-media-library-18.2.0.tgz#b7515e25df5951e6b579b2ca1bee934ed206fa43"
+  integrity sha512-aIYLIqmU8LFWrQcfZdwg9f/iWm0wC8uhZ7HiUiTnrigtxf417cVvNokX9afXpIOKBHAHRjVIbcs1nN8KZDE2Fw==
 
 expo-modules-autolinking@3.0.22:
   version "3.0.22"
@@ -3823,6 +3866,11 @@ expo-updates@~29.0.12:
     glob "^10.4.2"
     ignore "^5.3.1"
     resolve-from "^5.0.0"
+
+expo-video@~3.0.14:
+  version "3.0.14"
+  resolved "https://registry.yarnpkg.com/expo-video/-/expo-video-3.0.14.tgz#aaf3dfefbc3c202f1267d8599aa2d3bf48a45ad1"
+  integrity sha512-k4vz9mUzrgUdVI0IKesWzkYCJw0yc2AKioN/riLg+X/dyR/GG6ej03nzqKd0KmPjtG6FcJEA0D/BuxCtU4OH1Q==
 
 expo-web-browser@~15.0.9:
   version "15.0.9"

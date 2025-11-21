@@ -1,4 +1,3 @@
-import { AdaptiveKalman } from "@/lib/filter";
 import React, { useRef } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import MapView, { Polyline } from "react-native-maps";
@@ -23,36 +22,27 @@ export default function LocationMap({
 }: LocationMapProps) {
   const mapRef = useRef<MapView>(null);
 
-  const latFilter = useRef(new AdaptiveKalman()).current;
-  const lngFilter = useRef(new AdaptiveKalman()).current;
-
   const handleLocationUpdate = (event: any) => {
     const coordinate = event.nativeEvent?.coordinate;
     if (!coordinate) return;
 
     const { latitude, longitude, accuracy } = coordinate;
 
-    const smoothLat = parseFloat(
-      latFilter.filter(latitude, accuracy).toFixed(6)
-    );
-    const smoothLng = parseFloat(
-      lngFilter.filter(longitude, accuracy).toFixed(6)
-    );
-
+    // Avoid duplicates if very small movement
     if (locations.length > 0) {
       const prev = locations[locations.length - 1];
-      const dx = smoothLat - prev.Latitude;
-      const dy = smoothLng - prev.Longitude;
-      const distance = Math.sqrt(dx * dx + dy * dy) * 111320;
 
-      if (distance < 0.3) {
-        return;
-      }
+      const dx = latitude - prev.Latitude;
+      const dy = longitude - prev.Longitude;
+
+      const distanceMeters = Math.sqrt(dx * dx + dy * dy) * 111320;
+
+      if (distanceMeters < 1) return;
     }
 
     const loc: LocationData = {
-      Latitude: smoothLat,
-      Longitude: smoothLng,
+      Latitude: latitude,
+      Longitude: longitude,
       Accuracy: accuracy,
       Timestamp: locations.length + 1,
     };
@@ -61,8 +51,8 @@ export default function LocationMap({
 
     mapRef.current?.animateCamera({
       center: {
-        latitude: smoothLat,
-        longitude: smoothLng,
+        latitude,
+        longitude,
       },
       zoom: 19,
     });

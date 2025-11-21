@@ -1,8 +1,14 @@
 import LocationMap from "@/components/LocationMap";
 import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  CameraView,
+  useCameraPermissions,
+  useMicrophonePermissions,
+} from "expo-camera";
 import * as Location from "expo-location";
-import React, { useMemo, useState } from "react";
+import * as MediaLibrary from "expo-media-library";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -30,12 +36,14 @@ type SessionMeta = {
   Block: string;
   Ring: string;
   ChildRing: string;
+  VideoPath?: string | null;
 };
 
 type RecordingSession = {
   meta: SessionMeta;
   path: LocationData[];
   uploaded?: boolean;
+  videoUri?: string | null;
 };
 
 const STORAGE_KEY = "RECORDINGS";
@@ -51,6 +59,7 @@ const LocationScreen: React.FC = () => {
     Block: "",
     Ring: "",
     ChildRing: "",
+    VideoPath: null,
   });
   const [showDialog, setShowDialog] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -58,6 +67,14 @@ const LocationScreen: React.FC = () => {
     field: "State" | "District" | "Block" | "Ring" | null;
     searchQuery: string;
   }>({ field: null, searchQuery: "" });
+
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [microphonePermission, requestMicrophonePermissions] =
+    useMicrophonePermissions();
+  const cameraRef = useRef<CameraView | null>(null);
+  const [isVideoRecording, setIsVideoRecording] = useState(false);
+  const videoRecordingPromiseRef = useRef<Promise<any> | null>(null);
+  const [videoUri, setVideoUri] = useState<string | null>(null);
 
   const ensureLocationPermission = async () => {
     try {
@@ -80,6 +97,69 @@ const LocationScreen: React.FC = () => {
       Alert.alert("Error", message);
       return false;
     }
+  };
+
+  const ensureCameraPermission = async () => {
+    try {
+      const response = await requestCameraPermission();
+
+      if (!response || response.status !== "granted") {
+        const message =
+          "Camera permission is required to record video with your session. Please enable it in your device settings.";
+        setErrorMsg(message);
+        Alert.alert("Permission required", message);
+        return false;
+      }
+
+      const micResponse = await requestMicrophonePermissions();
+
+      if (!micResponse || micResponse.status !== "granted") {
+        const message =
+          "Microphone permission is required to record audio with your video. Please enable it in your device settings.";
+        setErrorMsg(message);
+        Alert.alert("Permission required", message);
+        return false;
+      }
+
+      setErrorMsg(null);
+      return true;
+    } catch (error) {
+      console.error("Error requesting camera permission:", error);
+      const message = "Could not request camera permission.";
+      setErrorMsg(message);
+      Alert.alert("Error", message);
+      return false;
+    }
+  };
+
+  const handleCameraReady = () => {
+    if (videoRecordingPromiseRef.current || isVideoRecording) return;
+    if (!cameraRef.current) return;
+
+    setIsVideoRecording(true);
+    const recordingPromise = cameraRef.current.recordAsync();
+    videoRecordingPromiseRef.current = recordingPromise;
+
+    recordingPromise
+      .then((video: any) => {
+        if (video?.uri) {
+          setVideoUri(video.uri);
+        }
+      })
+      .catch((err: any) => {
+        const message = String(err?.message ?? err);
+        if (
+          !message.includes(
+            "Recording was stopped before any data could be produced"
+          )
+        ) {
+          console.error("Video recording error:", err);
+        }
+      })
+      .finally(() => {
+        setIsVideoRecording(false);
+        videoRecordingPromiseRef.current = null;
+      });
   };
 
   const recordingSummary = useMemo(() => {
@@ -125,12 +205,54 @@ const LocationScreen: React.FC = () => {
     setIsRecording(false);
 
     try {
+      // Stop video recording if it's still running and capture final URI
+      let finalVideoUri: string | null = videoUri;
+
+      try {
+        if (
+          cameraRef.current &&
+          isVideoRecording &&
+          videoRecordingPromiseRef.current
+        ) {
+          cameraRef.current.stopRecording();
+          const video: any = await videoRecordingPromiseRef.current;
+          if (video?.uri) {
+            // Save video to the device's media library (gallery)
+            await MediaLibrary.createAssetAsync(video.uri);
+            finalVideoUri = video.uri;
+            setVideoUri(video.uri);
+          }
+        }
+      } catch (videoError: any) {
+        const message = String(videoError?.message ?? videoError);
+        // Ignore the benign "stopped before any data" case so that
+        // very short recordings are still treated as valid sessions.
+        if (
+          !message.includes(
+            "Recording was stopped before any data could be produced"
+          )
+        ) {
+          console.error("Error stopping video recording:", videoError);
+        }
+      } finally {
+        setIsVideoRecording(false);
+        videoRecordingPromiseRef.current = null;
+      }
+
       const existing = await AsyncStorage.getItem(STORAGE_KEY);
       const oldSessions: RecordingSession[] = existing
         ? JSON.parse(existing)
         : [];
 
-      const newSession: RecordingSession = { meta, path, uploaded: false };
+      const newSession: RecordingSession = {
+        meta: {
+          ...meta,
+          VideoPath: finalVideoUri ?? null,
+        },
+        path,
+        uploaded: false,
+        videoUri: finalVideoUri,
+      };
       const updated = [...oldSessions, newSession];
 
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -150,8 +272,13 @@ const LocationScreen: React.FC = () => {
       Alert.alert("Missing info", "Please fill Name, State, and District.");
       return;
     }
-    const hasPermission = await ensureLocationPermission();
-    if (!hasPermission) {
+    const hasLocationPermission = await ensureLocationPermission();
+    if (!hasLocationPermission) {
+      return;
+    }
+
+    const hasCameraPermission = await ensureCameraPermission();
+    if (!hasCameraPermission) {
       return;
     }
     startRecording();
@@ -161,14 +288,25 @@ const LocationScreen: React.FC = () => {
   if (isRecording) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LocationMap
-          locations={path}
-          onNewLocation={(loc) => {
-            setLocation(loc);
-            setPath((prev) => [...prev, loc]);
-          }}
-          onStopRecording={stopRecording}
-        />
+        <View style={styles.recordingContainer}>
+          <LocationMap
+            locations={path}
+            onNewLocation={(loc) => {
+              setLocation(loc);
+              setPath((prev) => [...prev, loc]);
+            }}
+            onStopRecording={stopRecording}
+          />
+
+          <View style={styles.cameraOverlay}>
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing="back"
+              onCameraReady={handleCameraReady}
+            />
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
@@ -462,6 +600,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#020617",
   },
+  recordingContainer: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
@@ -743,6 +884,21 @@ const styles = StyleSheet.create({
     color: "#cbd5f5",
     fontSize: 15,
     fontWeight: "600",
+  },
+  cameraOverlay: {
+    position: "absolute",
+    bottom: 40,
+    right: 20,
+    width: 140,
+    height: 220,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.8)",
+  },
+  camera: {
+    width: "100%",
+    height: "100%",
   },
 });
 
