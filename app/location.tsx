@@ -5,8 +5,11 @@ import * as Location from "expo-location";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
+  Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -39,6 +42,7 @@ type RecordingSession = {
 };
 
 const STORAGE_KEY = "RECORDINGS";
+const { height } = Dimensions.get("window");
 
 const LocationScreen: React.FC = () => {
   const [location, setLocation] = useState<LocationData | null>(null);
@@ -273,115 +277,129 @@ const LocationScreen: React.FC = () => {
 
       {/* METADATA MODAL */}
       <Modal visible={showDialog} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Session details</Text>
-            <Text style={styles.modalSubtitle}>
-              Provide metadata before recording.
-            </Text>
-
-            {/* Session Name */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Session name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Field Survey"
-                placeholderTextColor="#94a3b8"
-                value={meta.Name}
-                onChangeText={(t) => setMeta({ ...meta, Name: t })}
-              />
-            </View>
-
-            {/* STATE - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>State *</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "State", searchQuery: "" })
-                }
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <ScrollView
+                style={{ flexGrow: 0 }}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.pickerText}>
-                  {meta.State || "Select state"}
+                <Text style={styles.modalTitle}>Session details</Text>
+                <Text style={styles.modalSubtitle}>
+                  Provide metadata before recording.
                 </Text>
-              </TouchableOpacity>
-            </View>
 
-            {/* DISTRICT - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>District *</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "District", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.District || "Select district"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* Session Name */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Session name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Field Survey"
+                    placeholderTextColor="#94a3b8"
+                    value={meta.Name}
+                    onChangeText={(t) => setMeta({ ...meta, Name: t })}
+                  />
+                </View>
 
-            {/* BLOCK - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Block</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "Block", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.Block || "Select block"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* STATE */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>State *</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "State", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.State || "Select state"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* RING - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Ring</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "Ring", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.Ring || "Select ring"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* DISTRICT */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>District *</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({
+                        field: "District",
+                        searchQuery: "",
+                      })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.District || "Select district"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* CHILD RING */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Child ring</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Optional"
-                placeholderTextColor="#94a3b8"
-                value={meta.ChildRing}
-                onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
-              />
-            </View>
+                {/* BLOCK */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Block</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "Block", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.Block || "Select block"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* BUTTONS */}
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonGhost]}
-                onPress={() => setShowDialog(false)}
-              >
-                <Text style={styles.modalButtonGhostText}>Cancel</Text>
-              </TouchableOpacity>
+                {/* RING */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Ring</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "Ring", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.Ring || "Select ring"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={handleDialogStart}
-              >
-                <Text style={styles.modalButtonText}>Start recording</Text>
-              </TouchableOpacity>
+                {/* CHILD RING */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Child ring</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Optional"
+                    placeholderTextColor="#94a3b8"
+                    value={meta.ChildRing}
+                    onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
+                  />
+                </View>
+              </ScrollView>
+
+              {/* BUTTONS */}
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonGhost]}
+                  onPress={() => setShowDialog(false)}
+                >
+                  <Text style={styles.modalButtonGhostText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={handleDialogStart}
+                >
+                  <Text style={styles.modalButtonText}>Start recording</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Searchable Picker Modal */}
@@ -488,6 +506,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
     color: "#94a3b8",
+  },
+  scrollContent: {
+    paddingBottom: 20,
   },
   statusPill: {
     alignSelf: "flex-start",
@@ -610,6 +631,7 @@ const styles = StyleSheet.create({
   },
   modalBox: {
     backgroundColor: "#222222",
+    maxHeight: "80%",
     borderRadius: 24,
     padding: 24,
     width: "100%",
