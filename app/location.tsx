@@ -7,7 +7,6 @@ import {
 } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
-import * as TaskManager from "expo-task-manager";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -49,59 +48,6 @@ type RecordingSession = {
 };
 
 const STORAGE_KEY = "RECORDINGS";
-const LOCATION_TRACKING_TASK = "location-tracking-task";
-const CURRENT_SESSION_LOCATIONS_KEY = "CURRENT_SESSION_LOCATIONS";
-
-// Define the background location tracking task
-TaskManager.defineTask(
-  LOCATION_TRACKING_TASK,
-  async ({ data, error }: { data: any; error: any }) => {
-    if (error) {
-      console.error("Location task error:", error);
-      return;
-    }
-
-    if (data) {
-      const { locations } = data as { locations: Location.LocationObject[] };
-
-      // Process and store location data
-      if (locations && locations.length > 0) {
-        try {
-          // Get existing locations for current session
-          const existingData = await AsyncStorage.getItem(
-            CURRENT_SESSION_LOCATIONS_KEY
-          );
-          const existingLocations: LocationData[] = existingData
-            ? JSON.parse(existingData)
-            : [];
-
-          // Convert LocationObject to LocationData format
-          const newLocations: LocationData[] = locations.map((loc) => ({
-            Latitude: loc.coords.latitude,
-            Longitude: loc.coords.longitude,
-            Accuracy: loc.coords.accuracy,
-            Timestamp: loc.timestamp,
-          }));
-
-          // Append new locations
-          const updatedLocations = [...existingLocations, ...newLocations];
-
-          // Store back to AsyncStorage
-          await AsyncStorage.setItem(
-            CURRENT_SESSION_LOCATIONS_KEY,
-            JSON.stringify(updatedLocations)
-          );
-
-          console.log(
-            `Received ${locations.length} background location update(s), total: ${updatedLocations.length}`
-          );
-        } catch (storageError) {
-          console.error("Error storing location data:", storageError);
-        }
-      }
-    }
-  }
-);
 
 const LocationScreen: React.FC = () => {
   const [location, setLocation] = useState<LocationData | null>(null);
@@ -132,7 +78,11 @@ const LocationScreen: React.FC = () => {
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [recordStartTime, setRecordStartTime] = useState<number | null>(null);
   const [recordElapsed, setRecordElapsed] = useState(0);
+  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
 
+  // Update elapsed time every second
   useEffect(() => {
     if (!isRecording || recordStartTime == null) {
       setRecordElapsed(0);
@@ -146,33 +96,53 @@ const LocationScreen: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [isRecording, recordStartTime]);
 
-  // Read location updates from AsyncStorage when recording
+  // Capture location every second while recording (synced with video)
   useEffect(() => {
     if (!isRecording) {
+      // Clear interval when not recording
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
       return;
     }
 
-    const readLocations = async () => {
+    // Capture location immediately
+    const captureLocation = async () => {
       try {
-        const data = await AsyncStorage.getItem(CURRENT_SESSION_LOCATIONS_KEY);
-        if (data) {
-          const locations: LocationData[] = JSON.parse(data);
-          if (locations.length > 0) {
-            setPath(locations);
-            // Update current location to the latest one
-            setLocation(locations[locations.length - 1]);
-          }
-        }
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+
+        const locationData: LocationData = {
+          Latitude: location.coords.latitude,
+          Longitude: location.coords.longitude,
+          Accuracy: location.coords.accuracy,
+          Timestamp: location.timestamp,
+        };
+
+        setPath((prev) => {
+          const updated = [...prev, locationData];
+          setLocation(locationData);
+          return updated;
+        });
       } catch (error) {
-        console.error("Error reading location data:", error);
+        console.error("Error capturing location:", error);
       }
     };
 
-    // Read immediately and then every 1 second to sync with video
-    readLocations();
-    const intervalId = setInterval(readLocations, 1000);
+    // Capture immediately
+    captureLocation();
 
-    return () => clearInterval(intervalId);
+    // Then capture every second to sync with video
+    locationIntervalRef.current = setInterval(captureLocation, 1000);
+
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
   }, [isRecording]);
 
   const ensureLocationPermission = async () => {
@@ -292,67 +262,21 @@ const LocationScreen: React.FC = () => {
     setPath([]);
     setLocation(null);
     setRecordStartTime(Date.now());
-
-    // Clear previous session locations
-    await AsyncStorage.removeItem(CURRENT_SESSION_LOCATIONS_KEY);
-
-    // Start background location tracking
-    try {
-      const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-        LOCATION_TRACKING_TASK
-      );
-      if (!hasStarted) {
-        await Location.startLocationUpdatesAsync(LOCATION_TRACKING_TASK, {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 1000, // Update every 1 second to sync with video
-          foregroundService: {
-            notificationTitle: "Location Tracking",
-            notificationBody: "Recording your location in the background",
-          },
-        });
-        console.log("Background location tracking started");
-      }
-    } catch (error) {
-      console.error("Error starting location tracking:", error);
-      setErrorMsg("Failed to start location tracking");
-    }
+    setVideoUri(null);
   };
 
   const stopRecording = async () => {
     setIsRecording(false);
     setRecordStartTime(null);
 
-    // Stop background location tracking
-    try {
-      const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-        LOCATION_TRACKING_TASK
-      );
-      if (hasStarted) {
-        await Location.stopLocationUpdatesAsync(LOCATION_TRACKING_TASK);
-        console.log("Background location tracking stopped");
-      }
-    } catch (error) {
-      console.error("Error stopping location tracking:", error);
+    // Stop location interval
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+      locationIntervalRef.current = null;
     }
 
-    // Read final locations from storage
-    let finalPath: LocationData[] = [];
-    try {
-      const data = await AsyncStorage.getItem(CURRENT_SESSION_LOCATIONS_KEY);
-      if (data) {
-        finalPath = JSON.parse(data);
-        setPath(finalPath);
-        if (finalPath.length > 0) {
-          setLocation(finalPath[finalPath.length - 1]);
-        }
-      }
-    } catch (error) {
-      console.error("Error reading final location data:", error);
-      finalPath = path; // Fallback to current path state
-    }
-
-    // Clear temp storage
-    await AsyncStorage.removeItem(CURRENT_SESSION_LOCATIONS_KEY);
+    // Use current path state (already synced)
+    const finalPath = path;
 
     try {
       let finalVideoUri: string | null = videoUri;
