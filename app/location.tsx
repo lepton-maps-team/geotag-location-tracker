@@ -1,4 +1,3 @@
-import LocationMap from "@/components/LocationMap";
 import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -8,11 +7,14 @@ import {
 } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
+import * as TaskManager from "expo-task-manager";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -47,6 +49,59 @@ type RecordingSession = {
 };
 
 const STORAGE_KEY = "RECORDINGS";
+const LOCATION_TRACKING_TASK = "location-tracking-task";
+const CURRENT_SESSION_LOCATIONS_KEY = "CURRENT_SESSION_LOCATIONS";
+
+// Define the background location tracking task
+TaskManager.defineTask(
+  LOCATION_TRACKING_TASK,
+  async ({ data, error }: { data: any; error: any }) => {
+    if (error) {
+      console.error("Location task error:", error);
+      return;
+    }
+
+    if (data) {
+      const { locations } = data as { locations: Location.LocationObject[] };
+
+      // Process and store location data
+      if (locations && locations.length > 0) {
+        try {
+          // Get existing locations for current session
+          const existingData = await AsyncStorage.getItem(
+            CURRENT_SESSION_LOCATIONS_KEY
+          );
+          const existingLocations: LocationData[] = existingData
+            ? JSON.parse(existingData)
+            : [];
+
+          // Convert LocationObject to LocationData format
+          const newLocations: LocationData[] = locations.map((loc) => ({
+            Latitude: loc.coords.latitude,
+            Longitude: loc.coords.longitude,
+            Accuracy: loc.coords.accuracy,
+            Timestamp: loc.timestamp,
+          }));
+
+          // Append new locations
+          const updatedLocations = [...existingLocations, ...newLocations];
+
+          // Store back to AsyncStorage
+          await AsyncStorage.setItem(
+            CURRENT_SESSION_LOCATIONS_KEY,
+            JSON.stringify(updatedLocations)
+          );
+
+          console.log(
+            `Received ${locations.length} background location update(s), total: ${updatedLocations.length}`
+          );
+        } catch (storageError) {
+          console.error("Error storing location data:", storageError);
+        }
+      }
+    }
+  }
+);
 
 const LocationScreen: React.FC = () => {
   const [location, setLocation] = useState<LocationData | null>(null);
@@ -90,6 +145,35 @@ const LocationScreen: React.FC = () => {
 
     return () => clearInterval(intervalId);
   }, [isRecording, recordStartTime]);
+
+  // Read location updates from AsyncStorage when recording
+  useEffect(() => {
+    if (!isRecording) {
+      return;
+    }
+
+    const readLocations = async () => {
+      try {
+        const data = await AsyncStorage.getItem(CURRENT_SESSION_LOCATIONS_KEY);
+        if (data) {
+          const locations: LocationData[] = JSON.parse(data);
+          if (locations.length > 0) {
+            setPath(locations);
+            // Update current location to the latest one
+            setLocation(locations[locations.length - 1]);
+          }
+        }
+      } catch (error) {
+        console.error("Error reading location data:", error);
+      }
+    };
+
+    // Read immediately and then every 1 second to sync with video
+    readLocations();
+    const intervalId = setInterval(readLocations, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [isRecording]);
 
   const ensureLocationPermission = async () => {
     try {
@@ -201,20 +285,74 @@ const LocationScreen: React.FC = () => {
     setShowDialog(true);
   };
 
-  const startRecording = () => {
+  const startRecording = async () => {
     setShowDialog(false);
     setErrorMsg(null);
     setIsRecording(true);
     setPath([]);
     setLocation(null);
     setRecordStartTime(Date.now());
+
+    // Clear previous session locations
+    await AsyncStorage.removeItem(CURRENT_SESSION_LOCATIONS_KEY);
+
+    // Start background location tracking
+    try {
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+        LOCATION_TRACKING_TASK
+      );
+      if (!hasStarted) {
+        await Location.startLocationUpdatesAsync(LOCATION_TRACKING_TASK, {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 1000, // Update every 1 second to sync with video
+          foregroundService: {
+            notificationTitle: "Location Tracking",
+            notificationBody: "Recording your location in the background",
+          },
+        });
+        console.log("Background location tracking started");
+      }
+    } catch (error) {
+      console.error("Error starting location tracking:", error);
+      setErrorMsg("Failed to start location tracking");
+    }
   };
 
   const stopRecording = async () => {
     setIsRecording(false);
     setRecordStartTime(null);
-    setPath([]);
-    setLocation(null);
+
+    // Stop background location tracking
+    try {
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+        LOCATION_TRACKING_TASK
+      );
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TRACKING_TASK);
+        console.log("Background location tracking stopped");
+      }
+    } catch (error) {
+      console.error("Error stopping location tracking:", error);
+    }
+
+    // Read final locations from storage
+    let finalPath: LocationData[] = [];
+    try {
+      const data = await AsyncStorage.getItem(CURRENT_SESSION_LOCATIONS_KEY);
+      if (data) {
+        finalPath = JSON.parse(data);
+        setPath(finalPath);
+        if (finalPath.length > 0) {
+          setLocation(finalPath[finalPath.length - 1]);
+        }
+      }
+    } catch (error) {
+      console.error("Error reading final location data:", error);
+      finalPath = path; // Fallback to current path state
+    }
+
+    // Clear temp storage
+    await AsyncStorage.removeItem(CURRENT_SESSION_LOCATIONS_KEY);
 
     try {
       let finalVideoUri: string | null = videoUri;
@@ -292,7 +430,7 @@ const LocationScreen: React.FC = () => {
           ...meta,
           VideoPath: finalVideoUri ?? null, // 🔥 use updated shareable path
         },
-        path,
+        path: finalPath,
         uploaded: false,
         videoUri: finalVideoUri, // 🔥 save correct shareable URI
       };
@@ -302,7 +440,7 @@ const LocationScreen: React.FC = () => {
 
       Alert.alert(
         "Recording Saved",
-        `Saved ${path.length} points for ${meta.Name || "Unnamed"}`
+        `Saved ${finalPath.length} points for ${meta.Name || "Unnamed"}`
       );
     } catch (error) {
       console.error("Error saving data:", error);
@@ -311,7 +449,11 @@ const LocationScreen: React.FC = () => {
   };
 
   const handleDialogStart = async () => {
-    if (!meta.Name || !meta.State || !meta.District) {
+    const trimmedName = meta.Name?.trim() || "";
+    const trimmedState = meta.State?.trim() || "";
+    const trimmedDistrict = meta.District?.trim() || "";
+
+    if (!trimmedName || !trimmedState || !trimmedDistrict) {
       Alert.alert("Missing info", "Please fill Name, State, and District.");
       return;
     }
@@ -327,20 +469,77 @@ const LocationScreen: React.FC = () => {
     startRecording();
   };
 
-  // Show map view when recording
+  // Show recording view
   if (isRecording) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.recordingContainer}>
-          <LocationMap
-            locations={path}
-            onNewLocation={(loc) => {
-              setLocation(loc);
-              setPath((prev) => [...prev, loc]);
-            }}
-            onStopRecording={stopRecording}
-          />
+          <ScrollView
+            contentContainerStyle={styles.recordingContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Recording Header */}
+            <View style={styles.recordingHeader}>
+              <View style={styles.recordingStatus}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingStatusText}>Recording</Text>
+              </View>
+              <Text style={styles.recordingTime}>
+                {recordElapsed > 0 ? formatDuration(recordElapsed) : "00:00"}
+              </Text>
+            </View>
 
+            {/* Location Info */}
+            <View style={styles.recordingCard}>
+              <Text style={styles.recordingCardTitle}>Location Tracking</Text>
+              {location ? (
+                <View style={styles.recordingMetrics}>
+                  <View style={styles.recordingMetricRow}>
+                    <Text style={styles.recordingMetricLabel}>Latitude:</Text>
+                    <Text style={styles.recordingMetricValue}>
+                      {location.Latitude.toFixed(6)}
+                    </Text>
+                  </View>
+                  <View style={styles.recordingMetricRow}>
+                    <Text style={styles.recordingMetricLabel}>Longitude:</Text>
+                    <Text style={styles.recordingMetricValue}>
+                      {location.Longitude.toFixed(6)}
+                    </Text>
+                  </View>
+                  <View style={styles.recordingMetricRow}>
+                    <Text style={styles.recordingMetricLabel}>Accuracy:</Text>
+                    <Text style={styles.recordingMetricValue}>
+                      {location.Accuracy
+                        ? `${location.Accuracy.toFixed(1)}m`
+                        : "N/A"}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <Text style={styles.recordingPlaceholder}>
+                  Waiting for location updates...
+                </Text>
+              )}
+            </View>
+
+            {/* Points Count */}
+            <View style={styles.recordingCard}>
+              <Text style={styles.recordingCardTitle}>Points Captured</Text>
+              <Text style={styles.recordingPointsCount}>
+                {path.length} point{path.length === 1 ? "" : "s"}
+              </Text>
+            </View>
+
+            {/* Stop Button */}
+            <TouchableOpacity
+              style={styles.stopRecordingButton}
+              onPress={stopRecording}
+            >
+              <Text style={styles.stopRecordingButtonText}>Stop & Save</Text>
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Camera Overlay */}
           <View style={styles.cameraOverlay}>
             <CameraView
               mode="video"
@@ -462,113 +661,130 @@ const LocationScreen: React.FC = () => {
       {/* METADATA MODAL */}
       <Modal visible={showDialog} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Session details</Text>
-            <Text style={styles.modalSubtitle}>
-              Provide metadata before recording.
-            </Text>
-
-            {/* Session Name */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Session name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Field Survey"
-                placeholderTextColor="#94a3b8"
-                value={meta.Name}
-                onChangeText={(t) => setMeta({ ...meta, Name: t })}
-              />
-            </View>
-
-            {/* STATE - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>State *</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "State", searchQuery: "" })
-                }
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.keyboardAvoidingView}
+          >
+            <View style={styles.modalBox}>
+              <ScrollView
+                style={styles.modalScrollView}
+                contentContainerStyle={styles.modalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={true}
               >
-                <Text style={styles.pickerText}>
-                  {meta.State || "Select state"}
+                <Text style={styles.modalTitle}>Session details</Text>
+                <Text style={styles.modalSubtitle}>
+                  Provide metadata before recording.
                 </Text>
-              </TouchableOpacity>
-            </View>
 
-            {/* DISTRICT - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>District *</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "District", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.District || "Select district"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* Session Name */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Session name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Field Survey"
+                    placeholderTextColor="#94a3b8"
+                    value={meta.Name}
+                    onChangeText={(t) =>
+                      setMeta({ ...meta, Name: t.trimStart() })
+                    }
+                  />
+                </View>
 
-            {/* BLOCK - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Block</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "Block", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.Block || "Select block"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* STATE - SEARCHABLE */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>State *</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "State", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.State || "Select state"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* RING - SEARCHABLE */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Ring</Text>
-              <TouchableOpacity
-                style={styles.pickerWrapper}
-                onPress={() =>
-                  setSearchablePicker({ field: "Ring", searchQuery: "" })
-                }
-              >
-                <Text style={styles.pickerText}>
-                  {meta.Ring || "Select ring"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* DISTRICT - SEARCHABLE */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>District *</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({
+                        field: "District",
+                        searchQuery: "",
+                      })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.District || "Select district"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* CHILD RING */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Child ring</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Optional"
-                placeholderTextColor="#94a3b8"
-                value={meta.ChildRing}
-                onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
-              />
-            </View>
+                {/* BLOCK - SEARCHABLE */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Block</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "Block", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.Block || "Select block"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            {/* BUTTONS */}
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonGhost]}
-                onPress={() => setShowDialog(false)}
-              >
-                <Text style={styles.modalButtonGhostText}>Cancel</Text>
-              </TouchableOpacity>
+                {/* RING - SEARCHABLE */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Ring</Text>
+                  <TouchableOpacity
+                    style={styles.pickerWrapper}
+                    onPress={() =>
+                      setSearchablePicker({ field: "Ring", searchQuery: "" })
+                    }
+                  >
+                    <Text style={styles.pickerText}>
+                      {meta.Ring || "Select ring"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-              <TouchableOpacity
-                style={styles.modalButton}
-                onPress={handleDialogStart}
-              >
-                <Text style={styles.modalButtonText}>Start recording</Text>
-              </TouchableOpacity>
+                {/* CHILD RING */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Child ring</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Optional"
+                    placeholderTextColor="#94a3b8"
+                    value={meta.ChildRing}
+                    onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
+                  />
+                </View>
+
+                {/* BUTTONS */}
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonGhost]}
+                    onPress={() => setShowDialog(false)}
+                  >
+                    <Text style={styles.modalButtonGhostText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.modalButton}
+                    onPress={handleDialogStart}
+                  >
+                    <Text style={styles.modalButtonText}>Start recording</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -631,12 +847,12 @@ const LocationScreen: React.FC = () => {
               }
             />
             <TouchableOpacity
-              style={[styles.modalButton, styles.modalButtonGhost]}
+              style={styles.searchableModalCancelButton}
               onPress={() =>
                 setSearchablePicker({ field: null, searchQuery: "" })
               }
             >
-              <Text style={styles.modalButtonGhostText}>Cancel</Text>
+              <Text style={styles.searchableModalCancelButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -652,6 +868,100 @@ const styles = StyleSheet.create({
   },
   recordingContainer: {
     flex: 1,
+  },
+  recordingContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    gap: 20,
+  },
+  recordingHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.15)",
+  },
+  recordingStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  recordingDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#f87171",
+  },
+  recordingStatusText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fca5a5",
+  },
+  recordingTime: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  recordingCard: {
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    borderRadius: 18,
+    padding: 20,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.18)",
+  },
+  recordingCardTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#e2e8f0",
+  },
+  recordingMetrics: {
+    gap: 12,
+  },
+  recordingMetricRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  recordingMetricLabel: {
+    fontSize: 14,
+    color: "#94a3b8",
+  },
+  recordingMetricValue: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#38bdf8",
+  },
+  recordingPlaceholder: {
+    fontSize: 15,
+    color: "#94a3b8",
+    fontStyle: "italic",
+  },
+  recordingPointsCount: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#38bdf8",
+  },
+  stopRecordingButton: {
+    backgroundColor: "#ef4444",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    shadowColor: "#b91c1c",
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+    marginTop: 20,
+  },
+  stopRecordingButtonText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
   },
   content: {
     flexGrow: 1,
@@ -799,14 +1109,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
   },
+  keyboardAvoidingView: {
+    width: "100%",
+    maxHeight: "90%",
+  },
   modalBox: {
     backgroundColor: "#222222",
     borderRadius: 24,
-    padding: 24,
     width: "100%",
-    gap: 16,
+    maxHeight: "90%",
     borderWidth: 1,
     borderColor: "rgba(37, 99, 235, 0.25)",
+    overflow: "hidden",
+  },
+  modalScrollView: {
+    flexGrow: 0,
+  },
+  modalScrollContent: {
+    padding: 24,
+    gap: 16,
   },
   modalTitle: {
     fontSize: 22,
@@ -907,6 +1228,20 @@ const styles = StyleSheet.create({
   searchableEmptyText: {
     color: "#94a3b8",
     fontSize: 14,
+  },
+  searchableModalCancelButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  searchableModalCancelButtonText: {
+    color: "#cbd5f5",
+    fontSize: 15,
+    fontWeight: "600",
   },
   modalButtons: {
     flexDirection: "row",
