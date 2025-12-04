@@ -1,8 +1,8 @@
-import LocationMap from "@/components/LocationMap";
 import { blocks, districts, states } from "@/constants/lists";
+import { AdaptiveKalman } from "@/lib/filter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -62,6 +62,104 @@ const LocationScreen: React.FC = () => {
     field: "State" | "District" | "Block" | "Ring" | null;
     searchQuery: string;
   }>({ field: null, searchQuery: "" });
+
+  const latFilter = useRef(new AdaptiveKalman()).current;
+  const lngFilter = useRef(new AdaptiveKalman()).current;
+  const locationSubscription = useRef<Location.LocationSubscription | null>(
+    null
+  );
+  const pathRef = useRef<LocationData[]>([]);
+
+  // Keep pathRef in sync with path state
+  useEffect(() => {
+    pathRef.current = path;
+  }, [path]);
+
+  // Location tracking when recording
+  useEffect(() => {
+    if (!isRecording) {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+      return;
+    }
+
+    const startLocationTracking = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert(
+            "Permission required",
+            "Location permission is required to record."
+          );
+          setIsRecording(false);
+          return;
+        }
+
+        locationSubscription.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 1000,
+            distanceInterval: 1,
+          },
+          (location) => {
+            const { latitude, longitude, accuracy } = location.coords;
+
+            const smoothLat = parseFloat(
+              latFilter.filter(latitude, accuracy || null).toFixed(6)
+            );
+            const smoothLng = parseFloat(
+              lngFilter.filter(longitude, accuracy || null).toFixed(6)
+            );
+
+            // Distance filter - only add if moved at least 0.3m
+            const currentPath = pathRef.current;
+            if (currentPath.length > 0) {
+              const prev = currentPath[currentPath.length - 1];
+              const dx = smoothLat - prev.Latitude;
+              const dy = smoothLng - prev.Longitude;
+              const distance = Math.sqrt(dx * dx + dy * dy) * 111320; // meters
+
+              if (distance < 0.3) {
+                // Update current location but don't add to path
+                setLocation({
+                  Latitude: smoothLat,
+                  Longitude: smoothLng,
+                  Accuracy: accuracy || null,
+                  Timestamp: Date.now(),
+                });
+                return;
+              }
+            }
+
+            const loc: LocationData = {
+              Latitude: smoothLat,
+              Longitude: smoothLng,
+              Accuracy: accuracy || null,
+              Timestamp: Date.now(),
+            };
+
+            setLocation(loc);
+            setPath((prev) => [...prev, loc]);
+          }
+        );
+      } catch (error) {
+        console.error("Error starting location tracking:", error);
+        Alert.alert("Error", "Could not start location tracking.");
+        setIsRecording(false);
+      }
+    };
+
+    startLocationTracking();
+
+    return () => {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+    };
+  }, [isRecording, latFilter, lngFilter]);
 
   const ensureLocationPermission = async () => {
     try {
@@ -161,18 +259,57 @@ const LocationScreen: React.FC = () => {
     startRecording();
   };
 
-  // Show map view when recording
+  // Show recording view when recording
   if (isRecording) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LocationMap
-          locations={path}
-          onNewLocation={(loc) => {
-            setLocation(loc);
-            setPath((prev) => [...prev, loc]);
-          }}
-          onStopRecording={stopRecording}
-        />
+        <View style={styles.recordingContainer}>
+          <View style={styles.recordingHeader}>
+            <Text style={styles.recordingTitle}>Recording in Progress</Text>
+            <Text style={styles.recordingSubtitle}>
+              {path.length} point{path.length === 1 ? "" : "s"} captured
+            </Text>
+          </View>
+
+          <View style={styles.coordinatesCard}>
+            <Text style={styles.coordinatesTitle}>Current Coordinates</Text>
+            {location ? (
+              <View style={styles.coordinatesContent}>
+                <View style={styles.coordinateRow}>
+                  <Text style={styles.coordinateLabel}>Latitude:</Text>
+                  <Text style={styles.coordinateValue}>
+                    {location.Latitude.toFixed(6)}
+                  </Text>
+                </View>
+                <View style={styles.coordinateRow}>
+                  <Text style={styles.coordinateLabel}>Longitude:</Text>
+                  <Text style={styles.coordinateValue}>
+                    {location.Longitude.toFixed(6)}
+                  </Text>
+                </View>
+                <View style={styles.coordinateRow}>
+                  <Text style={styles.coordinateLabel}>Accuracy:</Text>
+                  <Text style={styles.coordinateValue}>
+                    {location.Accuracy
+                      ? `${location.Accuracy.toFixed(2)}m`
+                      : "N/A"}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.waitingText}>Waiting for location...</Text>
+            )}
+          </View>
+
+          <View style={styles.recordingActions}>
+            <TouchableOpacity
+              style={styles.stopRecordingButton}
+              onPress={stopRecording}
+            >
+              <Text style={styles.stopRecordingButtonText}>Stop Recording</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
@@ -765,6 +902,85 @@ const styles = StyleSheet.create({
     color: "#cbd5f5",
     fontSize: 15,
     fontWeight: "600",
+  },
+  recordingContainer: {
+    flex: 1,
+    padding: 20,
+    gap: 24,
+  },
+  recordingHeader: {
+    gap: 8,
+    alignItems: "center",
+  },
+  recordingTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  recordingSubtitle: {
+    fontSize: 16,
+    color: "#94a3b8",
+  },
+  coordinatesCard: {
+    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    borderRadius: 20,
+    padding: 24,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.15)",
+  },
+  coordinatesTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#e2e8f0",
+    marginBottom: 8,
+  },
+  coordinatesContent: {
+    gap: 16,
+  },
+  coordinateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.1)",
+  },
+  coordinateLabel: {
+    fontSize: 16,
+    color: "#94a3b8",
+    fontWeight: "500",
+  },
+  coordinateValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#38bdf8",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  waitingText: {
+    fontSize: 16,
+    color: "#94a3b8",
+    textAlign: "center",
+    paddingVertical: 20,
+  },
+  recordingActions: {
+    marginTop: "auto",
+  },
+  stopRecordingButton: {
+    backgroundColor: "#ef4444",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    shadowColor: "#b91c1c",
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  stopRecordingButtonText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
   },
 });
 
