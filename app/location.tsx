@@ -1,13 +1,9 @@
 import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  CameraView,
-  useCameraPermissions,
-  useMicrophonePermissions,
-} from "expo-camera";
+import { useCameraPermissions, useMicrophonePermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -22,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import RecordingView from "./components/RecordingView";
 
 type LocationData = {
   Latitude: number;
@@ -72,78 +69,6 @@ const LocationScreen: React.FC = () => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermissions] =
     useMicrophonePermissions();
-  const cameraRef = useRef<CameraView | null>(null);
-  const [isVideoRecording, setIsVideoRecording] = useState(false);
-  const videoRecordingPromiseRef = useRef<Promise<any> | null>(null);
-  const [videoUri, setVideoUri] = useState<string | null>(null);
-  const [recordStartTime, setRecordStartTime] = useState<number | null>(null);
-  const [recordElapsed, setRecordElapsed] = useState(0);
-  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
-    null
-  );
-
-  // Update elapsed time every second
-  useEffect(() => {
-    if (!isRecording || recordStartTime == null) {
-      setRecordElapsed(0);
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      setRecordElapsed(Math.floor((Date.now() - recordStartTime) / 1000));
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [isRecording, recordStartTime]);
-
-  // Capture location every second while recording (synced with video)
-  useEffect(() => {
-    if (!isRecording) {
-      // Clear interval when not recording
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // Capture location immediately
-    const captureLocation = async () => {
-      try {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-
-        const locationData: LocationData = {
-          Latitude: location.coords.latitude,
-          Longitude: location.coords.longitude,
-          Accuracy: location.coords.accuracy,
-          Timestamp: location.timestamp,
-        };
-
-        setPath((prev) => {
-          const updated = [...prev, locationData];
-          setLocation(locationData);
-          return updated;
-        });
-      } catch (error) {
-        console.error("Error capturing location:", error);
-      }
-    };
-
-    // Capture immediately
-    captureLocation();
-
-    // Then capture every second to sync with video
-    locationIntervalRef.current = setInterval(captureLocation, 1000);
-
-    return () => {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-    };
-  }, [isRecording]);
 
   const ensureLocationPermission = async () => {
     try {
@@ -201,29 +126,6 @@ const LocationScreen: React.FC = () => {
     }
   };
 
-  const handleCameraReady = () => {
-    if (videoRecordingPromiseRef.current || isVideoRecording) return;
-    if (!cameraRef.current) return;
-
-    setIsVideoRecording(true);
-    const recordingPromise = cameraRef.current.recordAsync();
-    videoRecordingPromiseRef.current = recordingPromise;
-
-    recordingPromise
-      .then((video: any) => {
-        if (video?.uri) {
-          setVideoUri(video.uri);
-        }
-      })
-      .catch((err: any) => {
-        console.error("Video recording error:", err);
-      })
-      .finally(() => {
-        setIsVideoRecording(false);
-        videoRecordingPromiseRef.current = null;
-      });
-  };
-
   const recordingSummary = useMemo(() => {
     if (!path.length) return "No points recorded yet.";
     const points = path.length;
@@ -255,66 +157,15 @@ const LocationScreen: React.FC = () => {
     setShowDialog(true);
   };
 
-  const startRecording = async () => {
-    setShowDialog(false);
-    setErrorMsg(null);
-    setIsRecording(true);
-    setPath([]);
-    setLocation(null);
-    setRecordStartTime(Date.now());
-    setVideoUri(null);
-  };
-
-  const stopRecording = async () => {
+  const handleRecordingStop = async (
+    finalPath: LocationData[],
+    finalVideoUri: string | null
+  ) => {
     setIsRecording(false);
-    setRecordStartTime(null);
-
-    // Stop location interval
-    if (locationIntervalRef.current) {
-      clearInterval(locationIntervalRef.current);
-      locationIntervalRef.current = null;
-    }
-
-    // Use current path state (already synced)
-    const finalPath = path;
 
     try {
-      let finalVideoUri: string | null = videoUri;
-
-      // --- STOP RECORDING SAFELY ---
-      try {
-        if (
-          cameraRef.current &&
-          isVideoRecording &&
-          videoRecordingPromiseRef.current
-        ) {
-          console.log("stopping recording");
-          cameraRef.current.stopRecording();
-        }
-
-        if (videoRecordingPromiseRef.current) {
-          const video = await videoRecordingPromiseRef.current;
-
-          if (video?.uri) {
-            finalVideoUri = video.uri; // raw Expo Go cache path
-            setVideoUri(video.uri);
-          }
-        }
-      } catch (videoError: any) {
-        const message = String(videoError?.message ?? videoError);
-        if (
-          !message.includes(
-            "Recording was stopped before any data could be produced"
-          )
-        ) {
-          console.error("Error stopping video recording:", videoError);
-        }
-      } finally {
-        setIsVideoRecording(false);
-        videoRecordingPromiseRef.current = null;
-      }
-
       // --- MOVE VIDEO TO DOCUMENT DIRECTORY (SHAREABLE) ---
+      let shareableVideoUri = finalVideoUri;
       if (finalVideoUri) {
         try {
           const videosDir = FileSystem.documentDirectory + "videos/";
@@ -334,10 +185,7 @@ const LocationScreen: React.FC = () => {
             to: dest,
           });
 
-          // 🔥 CRITICAL FIX — update finalVideoUri so later sharing works
-          finalVideoUri = dest;
-
-          setVideoUri(dest);
+          shareableVideoUri = dest;
         } catch (fsError) {
           console.error("Error while checking/saving video file:", fsError);
         }
@@ -352,11 +200,11 @@ const LocationScreen: React.FC = () => {
       const newSession: RecordingSession = {
         meta: {
           ...meta,
-          VideoPath: finalVideoUri ?? null, // 🔥 use updated shareable path
+          VideoPath: shareableVideoUri ?? null,
         },
         path: finalPath,
         uploaded: false,
-        videoUri: finalVideoUri, // 🔥 save correct shareable URI
+        videoUri: shareableVideoUri,
       };
 
       const updated = [...oldSessions, newSession];
@@ -370,6 +218,14 @@ const LocationScreen: React.FC = () => {
       console.error("Error saving data:", error);
       Alert.alert("Error", "Could not save location data.");
     }
+  };
+
+  const startRecording = () => {
+    setShowDialog(false);
+    setErrorMsg(null);
+    setIsRecording(true);
+    setPath([]);
+    setLocation(null);
   };
 
   const handleDialogStart = async () => {
@@ -396,91 +252,11 @@ const LocationScreen: React.FC = () => {
   // Show recording view
   if (isRecording) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.recordingContainer}>
-          <ScrollView
-            contentContainerStyle={styles.recordingContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Recording Header */}
-            <View style={styles.recordingHeader}>
-              <View style={styles.recordingStatus}>
-                <View style={styles.recordingDot} />
-                <Text style={styles.recordingStatusText}>Recording</Text>
-              </View>
-              <Text style={styles.recordingTime}>
-                {recordElapsed > 0 ? formatDuration(recordElapsed) : "00:00"}
-              </Text>
-            </View>
-
-            {/* Location Info */}
-            <View style={styles.recordingCard}>
-              <Text style={styles.recordingCardTitle}>Location Tracking</Text>
-              {location ? (
-                <View style={styles.recordingMetrics}>
-                  <View style={styles.recordingMetricRow}>
-                    <Text style={styles.recordingMetricLabel}>Latitude:</Text>
-                    <Text style={styles.recordingMetricValue}>
-                      {location.Latitude.toFixed(6)}
-                    </Text>
-                  </View>
-                  <View style={styles.recordingMetricRow}>
-                    <Text style={styles.recordingMetricLabel}>Longitude:</Text>
-                    <Text style={styles.recordingMetricValue}>
-                      {location.Longitude.toFixed(6)}
-                    </Text>
-                  </View>
-                  <View style={styles.recordingMetricRow}>
-                    <Text style={styles.recordingMetricLabel}>Accuracy:</Text>
-                    <Text style={styles.recordingMetricValue}>
-                      {location.Accuracy
-                        ? `${location.Accuracy.toFixed(1)}m`
-                        : "N/A"}
-                    </Text>
-                  </View>
-                </View>
-              ) : (
-                <Text style={styles.recordingPlaceholder}>
-                  Waiting for location updates...
-                </Text>
-              )}
-            </View>
-
-            {/* Points Count */}
-            <View style={styles.recordingCard}>
-              <Text style={styles.recordingCardTitle}>Points Captured</Text>
-              <Text style={styles.recordingPointsCount}>
-                {path.length} point{path.length === 1 ? "" : "s"}
-              </Text>
-            </View>
-
-            {/* Stop Button */}
-            <TouchableOpacity
-              style={styles.stopRecordingButton}
-              onPress={stopRecording}
-            >
-              <Text style={styles.stopRecordingButtonText}>Stop & Save</Text>
-            </TouchableOpacity>
-          </ScrollView>
-
-          {/* Camera Overlay */}
-          <View style={styles.cameraOverlay}>
-            <CameraView
-              mode="video"
-              ref={cameraRef}
-              style={styles.camera}
-              facing="back"
-              onCameraReady={handleCameraReady}
-            />
-
-            <View style={styles.cameraTimestamp}>
-              <Text style={styles.cameraTimestampText}>
-                {recordElapsed > 0 ? formatDuration(recordElapsed) : "00:00"}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </SafeAreaView>
+      <RecordingView
+        onStop={(finalPath, finalVideoUri) =>
+          handleRecordingStop(finalPath, finalVideoUri)
+        }
+      />
     );
   }
 
@@ -564,21 +340,12 @@ const LocationScreen: React.FC = () => {
 
         {/* ACTIONS */}
         <View style={styles.actions}>
-          {!isRecording ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleStartPress}
-            >
-              <Text style={styles.primaryButtonText}>Start new recording</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.stopButton]}
-              onPress={stopRecording}
-            >
-              <Text style={styles.primaryButtonText}>Stop & save</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={handleStartPress}
+          >
+            <Text style={styles.primaryButtonText}>Start new recording</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 

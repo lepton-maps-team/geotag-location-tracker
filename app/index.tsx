@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { uploadVideoWithFileSystem } from "@/lib/video-upload";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
@@ -9,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -24,6 +26,8 @@ const HomeScreen = () => {
   const [savingVideoIndex, setSavingVideoIndex] = useState<number | null>(null);
   const [savingTrackIndex, setSavingTrackIndex] = useState<number | null>(null);
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>("");
 
   const handleLogout = useCallback(async () => {
     try {
@@ -47,9 +51,15 @@ const HomeScreen = () => {
 
       try {
         setUploadingIndex(index);
+        setShowUploadDialog(true);
+        setUploadStatus("Preparing upload...");
+
         const storedUser = await AsyncStorage.getItem("user");
         const user = JSON.parse(storedUser as string);
         const track = record.path;
+
+        // Upload GPS track
+        setUploadStatus("Uploading GPS track...");
         const { data, error } = await supabase
           .from("gps_tracks")
           .insert({
@@ -67,30 +77,63 @@ const HomeScreen = () => {
           throw error;
         }
 
-        await supabase.from("surveys").insert({
-          name: record?.meta?.Name,
-          gps_track_id: data.id,
-          timestamp: Date.now(),
-          user_id: user.id,
-          state: record?.meta?.State,
-          district: record?.meta?.District,
-          block: record?.meta?.Block,
-          ring: record?.meta?.Ring,
-          child_ring: record?.meta?.ChildRing,
-        });
+        // Upload survey metadata
+        setUploadStatus("Saving survey data...");
+        const surveyData = await supabase
+          .from("surveys")
+          .insert({
+            name: record?.meta?.Name,
+            gps_track_id: data.id,
+            timestamp: Date.now(),
+            user_id: user.id,
+            state: record?.meta?.State,
+            district: record?.meta?.District,
+            block: record?.meta?.Block,
+            ring: record?.meta?.Ring,
+            child_ring: record?.meta?.ChildRing,
+          })
+          .select()
+          .single();
+
+        if (surveyData.error) {
+          throw surveyData.error;
+        }
+
+        // Upload video if available
+        if (record.videoUri) {
+          setUploadStatus("Uploading video...");
+          const videoMetadata = await uploadVideoWithFileSystem(
+            record.videoUri,
+            surveyData.data.id
+          );
+
+          console.log(videoMetadata.finalUrl, "videoMetadata.finalUrl");
+
+          console.log("Video metadata:", videoMetadata);
+        } else {
+          setUploadStatus("No video to upload, skipping...");
+        }
+
+        // Update local storage
+        setUploadStatus("Finalizing...");
         const updated = [...locations];
         updated[index] = { ...record, uploaded: true };
         setLocations(updated);
         await AsyncStorage.setItem("RECORDINGS", JSON.stringify(updated));
+
+        // Close dialog and show success
+        setShowUploadDialog(false);
         Alert.alert("Uploaded", `Uploaded ${data.name} successfully.`);
       } catch (error) {
         console.error("Failed to upload recording:", error);
+        setShowUploadDialog(false);
         Alert.alert(
           "Upload failed",
           "We couldn't upload the file. Please try again."
         );
       } finally {
         setUploadingIndex(null);
+        setUploadStatus("");
       }
     },
     [locations]
@@ -322,15 +365,39 @@ const HomeScreen = () => {
           }
           renderItem={({ item, index }) => (
             <View style={styles.recordItem}>
-              <Text style={styles.recordTitle}>
-                {item?.meta?.Name ?? "Unnamed"}
-              </Text>
-              <Text style={styles.metaSummary}>
-                {Object.entries(item?.meta ?? {})
-                  .filter(([key]) => key !== "Name")
-                  .map(([key, value]) => `${key}: ${value}`)
-                  .join(" • ") || "No metadata"}
-              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (item?.videoUri) {
+                    router.push({
+                      pathname: "/video" as any,
+                      params: {
+                        videoUri: item.videoUri,
+                        sessionName: item?.meta?.Name ?? "Unnamed",
+                      },
+                    });
+                  } else {
+                    Alert.alert(
+                      "No video available",
+                      "This session does not have an associated video file."
+                    );
+                  }
+                }}
+                disabled={!item?.videoUri}
+                activeOpacity={item?.videoUri ? 0.7 : 1}
+              >
+                <Text style={styles.recordTitle}>
+                  {item?.meta?.Name ?? "Unnamed"}
+                </Text>
+                <Text style={styles.metaSummary}>
+                  {Object.entries(item?.meta ?? {})
+                    .filter(([key]) => key !== "Name")
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join(" • ") || "No metadata"}
+                </Text>
+                {item?.videoUri && (
+                  <Text style={styles.playHint}>Tap to play video</Text>
+                )}
+              </TouchableOpacity>
               <View style={styles.recordActions}>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.uploadButton]}
@@ -387,6 +454,25 @@ const HomeScreen = () => {
             </View>
           )}
         />
+
+        {/* Upload Progress Dialog */}
+        <Modal
+          visible={showUploadDialog}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {}} // Prevent closing during upload
+        >
+          <View style={styles.uploadDialogOverlay}>
+            <View style={styles.uploadDialogBox}>
+              <ActivityIndicator size="large" color="#38bdf8" />
+              <Text style={styles.uploadDialogTitle}>Uploading Session</Text>
+              <Text style={styles.uploadDialogStatus}>{uploadStatus}</Text>
+              <Text style={styles.uploadDialogHint}>
+                Please don't close this screen
+              </Text>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -523,6 +609,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
   },
+  playHint: {
+    fontSize: 12,
+    color: "#38bdf8",
+    fontStyle: "italic",
+    marginTop: -4,
+  },
   recordTitle: {
     fontSize: 16,
     fontWeight: "600",
@@ -573,6 +665,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.3,
+  },
+  uploadDialogOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  uploadDialogBox: {
+    backgroundColor: "rgba(15, 23, 42, 0.98)",
+    borderRadius: 24,
+    padding: 32,
+    alignItems: "center",
+    minWidth: 280,
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.3)",
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  uploadDialogTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#e2e8f0",
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  uploadDialogStatus: {
+    fontSize: 15,
+    color: "#38bdf8",
+    textAlign: "center",
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  uploadDialogHint: {
+    fontSize: 12,
+    color: "#94a3b8",
+    textAlign: "center",
+    marginTop: 8,
+    fontStyle: "italic",
   },
 });
 

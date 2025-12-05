@@ -18,6 +18,14 @@ export default function RootLayout() {
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="location" options={{ title: "Location" }} />
         <Stack.Screen
+          name="video"
+          options={{
+            title: "Video Player",
+            headerShown: false,
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}
         />

@@ -4,7 +4,7 @@
     "slug": "location-tracker",
     "scheme": "exp",
     "version": "1.0.0",
-    "jsEngine": "hermes",
+    "jsEngine": "jsc",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
