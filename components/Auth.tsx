@@ -1,6 +1,6 @@
-import { supabase } from "@/lib/supabase";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import { useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
@@ -36,38 +36,59 @@ const Auth = () => {
     setError(null);
 
     try {
-      const { data, error: supabaseError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("username", trimmedUsername)
-        .eq("password", password)
-        .single();
-
-      if (supabaseError) {
-        if (
-          supabaseError.code === "PGRST116" ||
-          supabaseError.message?.includes("No rows")
-        ) {
-          setError("Invalid username or password.");
-        } else {
-          console.error("Supabase login error:", supabaseError);
-          setError("An unexpected error occurred. Please try again.");
+      console.log(trimmedUsername, password);
+      const data = JSON.stringify({
+        User_Name: trimmedUsername,
+        Password: password,
+        Fcm_Key:
+          "AAAACY0Odmk:APA91bGgM9_BraffD7siQdQdpy7F3UXYSz-s9iNhTyuOlPMciv24UQU7e48PLZRKNIuz6APrSsTGhmiZpnFHEi4a7aFkXL1BbvdeiOY6aaVchoFtEGePp_1a0bIGLjeWmi_L29g73MQk",
+      });
+      const response = await axios.post(
+        "https://networkaccess.st.leptonsoftware.com:8056/api/Video/LoginUser",
+        {
+          data,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
         }
+      );
+
+      console.log("Login API Response:", response.data);
+
+      const { Status, Message, Result } = response.data;
+      console.log("Status", Status);
+      if (response.data) {
+        await AsyncStorage.setItem("user", JSON.stringify(response.data));
+        setUsername("");
+        setPassword("");
+        router.replace("/");
+      }
+
+      if (Status !== "5006" || !Result) {
+        setError(Message || "Invalid username or password.");
         return;
       }
 
-      if (!data || data.password !== password) {
-        setError("Invalid username or password.");
-        return;
-      }
+      // Save the full response to AsyncStorage
 
       setUsername("");
       setPassword("");
-      AsyncStorage.setItem("user", JSON.stringify(data));
-      router.replace("/");
-    } catch (caughtError) {
+    } catch (caughtError: any) {
       console.error("Login error:", caughtError);
-      setError("An unexpected error occurred. Please try again.");
+      if (caughtError.response) {
+        console.error("Response error:", caughtError.response.data);
+        const errorMessage =
+          caughtError.response.data?.Message ||
+          "An unexpected error occurred. Please try again.";
+        setError(errorMessage);
+      } else if (caughtError.request) {
+        console.error("Request error:", caughtError.request);
+        setError("Network error. Please check your connection.");
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -87,13 +108,12 @@ const Auth = () => {
 
           <View style={styles.form}>
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Username</Text>
               <TextInput
-                placeholder="hello@company.com"
+                placeholder="Enter your username"
                 placeholderTextColor="#6b7280"
                 autoCapitalize="none"
                 autoCorrect={false}
-                keyboardType="email-address"
                 value={username}
                 onChangeText={setUsername}
                 style={styles.input}

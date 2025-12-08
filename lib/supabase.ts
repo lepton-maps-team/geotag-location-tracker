@@ -1,8 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { createClient } from '@supabase/supabase-js'
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://xengyefjbnoolmqyphxw.supabase.co"
-const supabasePublishableKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhlbmd5ZWZqYm5vb2xtcXlwaHh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAzOTYzOTEsImV4cCI6MjA1NTk3MjM5MX0.5JFYQNXFe3Jn099q_CByr0t1WogjtXXDFFVAFXr7sgY"
+const supabaseUrl = "https://mfjafqxrfpfkwyroendp.supabase.co";
+const supabasePublishableKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mamFmcXhyZnBma3d5cm9lbmRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4MDQ0MTgsImV4cCI6MjA2NTM4MDQxOH0.LI3bPG_kFe4d1TCz5pUV2X05dicHuGDK0PB_pT3fBuI";
 
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
@@ -11,4 +12,4 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
-})
+});

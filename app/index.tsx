@@ -1,7 +1,7 @@
-import { supabase } from "@/lib/supabase";
 import { uploadVideoWithFileSystem } from "@/lib/video-upload";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
+import axios from "axios";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
@@ -53,77 +53,211 @@ const HomeScreen = () => {
         setUploadingIndex(index);
         setShowUploadDialog(true);
         setUploadStatus("Preparing upload...");
+        console.log("[upload] start", { index, hasVideo: !!record?.videoUri });
 
         const storedUser = await AsyncStorage.getItem("user");
         const user = JSON.parse(storedUser as string);
+        console.log("user", user);
+
+        // Extract User_id from the nested structure
+        // Structure: user.data = "{\"Status\":\"...\",\"Result\":{\"User_id\":...}}"
+        let userId = "";
+        if (user?.data && typeof user.data === "string") {
+          // user.data is a JSON string, parse it
+          const parsedData = JSON.parse(user.data);
+          userId = String(parsedData?.Result?.User_id || "");
+        } else if (user?.Result?.User_id) {
+          // Fallback: if Result is already an object
+          userId = String(user.Result.User_id);
+        } else if (user?.User_id) {
+          // Fallback: if User_id is directly on user
+          userId = String(user.User_id);
+        }
+
+        if (!userId) {
+          console.error("Could not extract User_id from user object:", user);
+          throw new Error("User_id not found in user data");
+        }
+
+        console.log("userId", userId);
         const track = record.path;
 
-        // Upload GPS track
-        setUploadStatus("Uploading GPS track...");
-        const { data, error } = await supabase
-          .from("gps_tracks")
-          .insert({
-            name: record?.meta?.Name,
-            location_data: track,
-            timestamp: Date.now(),
-            duration: track[track.length - 1].Timestamp - track[0].Timestamp,
-            route_id: "",
-            entity_id: "",
-            depth_data: [],
-          })
-          .select()
-          .single();
-        if (error) {
-          throw error;
-        }
+        console.log("track", track);
 
-        // Upload survey metadata
-        setUploadStatus("Saving survey data...");
-        const surveyData = await supabase
-          .from("surveys")
-          .insert({
-            name: record?.meta?.Name,
-            gps_track_id: data.id,
-            timestamp: Date.now(),
-            user_id: user.id,
-            state: record?.meta?.State,
-            district: record?.meta?.District,
-            block: record?.meta?.Block,
-            ring: record?.meta?.Ring,
-            child_ring: record?.meta?.ChildRing,
-          })
-          .select()
-          .single();
-
-        if (surveyData.error) {
-          throw surveyData.error;
-        }
-
-        // Upload video if available
         if (record.videoUri) {
-          setUploadStatus("Uploading video...");
+          setUploadStatus("Generating video ID...");
+
+          // Generate random ID in format: timestamp1_timestamp2
+          const timestamp1 = Date.now();
+          const timestamp2 = Date.now() - Math.floor(Math.random() * 100000);
+          const videoId = `${timestamp1}_${timestamp2}`;
+          const videoFileName = `${videoId}.mp4`;
+
+          // Upload video to R2 storage with the generated ID
+          setUploadStatus("Uploading video to storage...");
+          console.log("record.videoUri", record.videoUri);
+          console.log("videoId", videoId);
           const videoMetadata = await uploadVideoWithFileSystem(
             record.videoUri,
-            surveyData.data.id
+            videoId
           );
 
           console.log(videoMetadata.finalUrl, "videoMetadata.finalUrl");
+          console.log("[upload] video metadata", videoMetadata);
 
-          console.log("Video metadata:", videoMetadata);
+          // Upload to Mux
+          setUploadStatus("Uploading to Mux...");
+          let muxResponse;
+          try {
+            muxResponse = await axios.post(
+              "https://mfjafqxrfpfkwyroendp.supabase.co/functions/v1/create-mux-asset",
+              {
+                videoUrl: videoMetadata.finalUrl,
+              },
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mamFmcXhyZnBma3d5cm9lbmRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4MDQ0MTgsImV4cCI6MjA2NTM4MDQxOH0.LI3bPG_kFe4d1TCz5pUV2X05dicHuGDK0PB_pT3fBuI"}`,
+                },
+              }
+            );
+            console.log("Success", muxResponse.data);
+          } catch (error) {
+            console.log("AXIOS ERROR:", JSON.stringify(error, null, 2));
+          }
+
+          // Calculate video duration from track timestamps (in seconds)
+          const videoDuration =
+            track.length > 0
+              ? track[track.length - 1].Timestamp - track[0].Timestamp
+              : 0;
+
+          // Format capture time from recordedAt timestamp
+          const recordedAt = record?.meta?.recordedAt || Date.now();
+          const captureDate = new Date(recordedAt);
+          const captureTime = `${String(captureDate.getDate()).padStart(
+            2,
+            "0"
+          )}-${String(captureDate.getMonth() + 1).padStart(
+            2,
+            "0"
+          )}-${captureDate.getFullYear()} ${String(
+            captureDate.getHours()
+          ).padStart(2, "0")}:${String(captureDate.getMinutes()).padStart(
+            2,
+            "0"
+          )}:${String(captureDate.getSeconds()).padStart(2, "0")}`;
+
+          const routeId = record?.meta?.route;
+
+          const entityId = record?.meta?.entity;
+
+          // Convert location path to videoGeoLocation format
+          const videoGeoLocation = track.map((point: any) => ({
+            Latitude: String(point.Latitude),
+            Longitude: String(point.Longitude),
+            Accuracy: point.Accuracy ? String(point.Accuracy) : "0",
+            timeStamp: String(point.Timestamp),
+          }));
+          console.log("[upload] geo payload preview", {
+            first: videoGeoLocation[0],
+            total: videoGeoLocation.length,
+          });
+
+          // Save video geocoded details
+          setUploadStatus("Saving video geocoded details...");
+
+          const geoCodeDataBody = JSON.stringify({
+            Video_ID: videoFileName,
+            Video_Duration: String(videoDuration),
+            Capture_Time: captureTime,
+            Created_By: user.User_Name || user.First_Name || "Unknown",
+            Route_ID: "1",
+            Entity_ID: "5",
+            Video_Name: record?.meta?.videoName || "Unnamed",
+            Remarks: record?.meta?.childRing || "",
+            videoGeoLocation: videoGeoLocation,
+            Depth_Points: [],
+            is_supabase_upload: true,
+            supabase_id: videoFileName,
+            block: record?.meta?.blockName || "",
+          });
+
+          console.log("userId", userId);
+          console.log("user object structure:", {
+            hasResult: !!user?.Result,
+            hasUser_id: !!user?.User_id,
+            keys: Object.keys(user || {}),
+          });
+
+          try {
+            const geocodedResponse = await axios.post(
+              "https://networkaccess.st.leptonsoftware.com:8056/api/Video/SaveVideoGeocodedDetails",
+              {
+                data: geoCodeDataBody,
+              },
+              {
+                headers: {
+                  userId,
+                },
+              }
+            );
+            console.log("[upload] geocoded response", geocodedResponse.data);
+
+            // Parse the nested response structure
+            let geocodedStatus = "";
+            let geocodedMessage = "";
+            if (
+              geocodedResponse?.data?.data &&
+              typeof geocodedResponse.data.data === "string"
+            ) {
+              // Response has nested data structure: {data: "{\"Status\":\"...\",\"Message\":\"...\"}"}
+              const parsedData = JSON.parse(geocodedResponse.data.data);
+              geocodedStatus = parsedData?.Status || "";
+              geocodedMessage = parsedData?.Message || "";
+            } else if (geocodedResponse?.data?.Status) {
+              // Direct structure: {Status: "...", Message: "..."}
+              geocodedStatus = geocodedResponse.data.Status;
+              geocodedMessage = geocodedResponse.data.Message || "";
+            }
+
+            // Check if status is success (5001)
+            if (geocodedStatus !== "5001") {
+              const errorMessage =
+                geocodedMessage || "Failed to save video geocoded details";
+              console.error("[upload] Geocoded API error:", {
+                status: geocodedStatus,
+                message: geocodedMessage,
+                response: geocodedResponse.data,
+              });
+              throw new Error(
+                `Geocoded details API error (Status: ${geocodedStatus}): ${errorMessage}`
+              );
+            }
+
+            console.log("[upload] Geocoded details saved successfully");
+
+            setUploadStatus("Finalizing...");
+            const updated = [...locations];
+            updated[index] = { ...record, uploaded: true };
+            setLocations(updated);
+            await AsyncStorage.setItem("RECORDINGS", JSON.stringify(updated));
+
+            // Close dialog and show success
+            setShowUploadDialog(false);
+            Alert.alert(
+              "Uploaded",
+              `Uploaded ${record?.meta?.videoName} successfully.`
+            );
+          } catch (error) {
+            console.log("AXIOS ERROR:", JSON.stringify(error, null, 2));
+          }
         } else {
           setUploadStatus("No video to upload, skipping...");
+          console.log("[upload] no video present for record", { index });
         }
 
         // Update local storage
-        setUploadStatus("Finalizing...");
-        const updated = [...locations];
-        updated[index] = { ...record, uploaded: true };
-        setLocations(updated);
-        await AsyncStorage.setItem("RECORDINGS", JSON.stringify(updated));
-
-        // Close dialog and show success
-        setShowUploadDialog(false);
-        Alert.alert("Uploaded", `Uploaded ${data.name} successfully.`);
       } catch (error) {
         console.error("Failed to upload recording:", error);
         setShowUploadDialog(false);
@@ -185,7 +319,7 @@ const HomeScreen = () => {
         const trackText = JSON.stringify(track, null, 2);
 
         const randomId = Math.random().toString(36).substring(2, 10);
-        const fileName = `${record?.meta?.Name || "path"}-${randomId}.txt`;
+        const fileName = `${record?.meta?.videoName || "path"}-${randomId}.txt`;
 
         const fileUri = FileSystem.documentDirectory + fileName;
 
@@ -335,7 +469,7 @@ const HomeScreen = () => {
           data={locations}
           keyExtractor={(item, index) =>
             item?.meta?.id?.toString() ??
-            `${item?.meta?.Name ?? "record"}-${index}`
+            `${item?.meta?.videoName ?? "record"}-${index}`
           }
           style={styles.list}
           contentContainerStyle={[
@@ -372,7 +506,7 @@ const HomeScreen = () => {
                       pathname: "/video" as any,
                       params: {
                         videoUri: item.videoUri,
-                        sessionName: item?.meta?.Name ?? "Unnamed",
+                        sessionName: item?.meta?.videoName ?? "Unnamed",
                       },
                     });
                   } else {
@@ -386,11 +520,16 @@ const HomeScreen = () => {
                 activeOpacity={item?.videoUri ? 0.7 : 1}
               >
                 <Text style={styles.recordTitle}>
-                  {item?.meta?.Name ?? "Unnamed"}
+                  {item?.meta?.videoName ?? "Unnamed"}
                 </Text>
                 <Text style={styles.metaSummary}>
                   {Object.entries(item?.meta ?? {})
-                    .filter(([key]) => key !== "Name")
+                    .filter(
+                      ([key]) =>
+                        key !== "videoName" &&
+                        key !== "videoPath" &&
+                        key !== "recordedAt"
+                    )
                     .map(([key, value]) => `${key}: ${value}`)
                     .join(" • ") || "No metadata"}
                 </Text>

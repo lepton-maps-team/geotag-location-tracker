@@ -1,4 +1,3 @@
-import { blocks, districts, states } from "@/constants/lists";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions, useMicrophonePermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
@@ -28,13 +27,13 @@ type LocationData = {
 };
 
 type SessionMeta = {
-  Name: string;
-  State: string;
-  District: string;
-  Block: string;
-  Ring: string;
-  ChildRing: string;
-  VideoPath?: string | null;
+  videoName: string;
+  blockName: string;
+  route: string;
+  entity: string;
+  childRing: string;
+  videoPath?: string | null;
+  recordedAt?: number; // Timestamp when recording started
 };
 
 type RecordingSession = {
@@ -50,21 +49,24 @@ const LocationScreen: React.FC = () => {
   const [location, setLocation] = useState<LocationData | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [path, setPath] = useState<LocationData[]>([]);
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(
+    null
+  );
   const [meta, setMeta] = useState<SessionMeta>({
-    Name: "",
-    State: "",
-    District: "",
-    Block: "",
-    Ring: "",
-    ChildRing: "",
-    VideoPath: null,
+    videoName: "",
+    blockName: "",
+    route: "",
+    entity: "",
+    childRing: "",
+    videoPath: null,
   });
   const [showDialog, setShowDialog] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchablePicker, setSearchablePicker] = useState<{
-    field: "State" | "District" | "Block" | "Ring" | null;
+    field: "Entity" | null;
     searchQuery: string;
   }>({ field: null, searchQuery: "" });
+  const [showRoutePicker, setShowRoutePicker] = useState<boolean>(false);
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermissions] =
@@ -139,14 +141,15 @@ const LocationScreen: React.FC = () => {
     const query = searchablePicker.searchQuery.toLowerCase().trim();
     let options: string[] = [];
 
-    if (searchablePicker.field === "State") {
-      options = states;
-    } else if (searchablePicker.field === "District") {
-      options = districts;
-    } else if (searchablePicker.field === "Block") {
-      options = blocks;
-    } else if (searchablePicker.field === "Ring") {
-      options = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"];
+    if (searchablePicker.field === "Entity") {
+      options = [
+        "Cable",
+        "Manhole",
+        "PIT",
+        "Splice Closure",
+        "Trench-HDD",
+        "Trench-Open",
+      ];
     }
 
     if (!query) return options;
@@ -200,7 +203,8 @@ const LocationScreen: React.FC = () => {
       const newSession: RecordingSession = {
         meta: {
           ...meta,
-          VideoPath: shareableVideoUri ?? null,
+          videoPath: shareableVideoUri ?? null,
+          recordedAt: recordingStartTime || Date.now(), // Store recording start time
         },
         path: finalPath,
         uploaded: false,
@@ -210,13 +214,18 @@ const LocationScreen: React.FC = () => {
       const updated = [...oldSessions, newSession];
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
+      // Reset recording start time
+      setRecordingStartTime(null);
+
       Alert.alert(
         "Recording Saved",
-        `Saved ${finalPath.length} points for ${meta.Name || "Unnamed"}`
+        `Saved ${finalPath.length} points for ${meta.videoName || "Unnamed"}`
       );
     } catch (error) {
       console.error("Error saving data:", error);
       Alert.alert("Error", "Could not save location data.");
+    } finally {
+      setRecordingStartTime(null);
     }
   };
 
@@ -226,15 +235,14 @@ const LocationScreen: React.FC = () => {
     setIsRecording(true);
     setPath([]);
     setLocation(null);
+    setRecordingStartTime(Date.now()); // Store when recording started
   };
 
   const handleDialogStart = async () => {
-    const trimmedName = meta.Name?.trim() || "";
-    const trimmedState = meta.State?.trim() || "";
-    const trimmedDistrict = meta.District?.trim() || "";
+    const trimmedName = meta.videoName?.trim() || "";
 
-    if (!trimmedName || !trimmedState || !trimmedDistrict) {
-      Alert.alert("Missing info", "Please fill Name, State, and District.");
+    if (!trimmedName) {
+      Alert.alert("Missing info", "Please fill the Name field.");
       return;
     }
     const hasLocationPermission = await ensureLocationPermission();
@@ -370,77 +378,54 @@ const LocationScreen: React.FC = () => {
 
                 {/* Session Name */}
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.inputLabel}>Session name *</Text>
+                  <Text style={styles.inputLabel}>Videos name *</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Field Survey"
                     placeholderTextColor="#94a3b8"
-                    value={meta.Name}
+                    value={meta.videoName}
                     onChangeText={(t) =>
-                      setMeta({ ...meta, Name: t.trimStart() })
+                      setMeta({ ...meta, videoName: t.trimStart() })
                     }
                   />
                 </View>
 
-                {/* STATE - SEARCHABLE */}
+                {/* BLOCK NAME - INPUT */}
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.inputLabel}>State *</Text>
+                  <Text style={styles.inputLabel}>Block name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter block name"
+                    placeholderTextColor="#94a3b8"
+                    value={meta.blockName}
+                    onChangeText={(t) => setMeta({ ...meta, blockName: t })}
+                  />
+                </View>
+
+                {/* ROUTE - PICKER */}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>Route</Text>
                   <TouchableOpacity
                     style={styles.pickerWrapper}
-                    onPress={() =>
-                      setSearchablePicker({ field: "State", searchQuery: "" })
-                    }
+                    onPress={() => setShowRoutePicker(true)}
                   >
                     <Text style={styles.pickerText}>
-                      {meta.State || "Select state"}
+                      {meta.route || "Select route"}
                     </Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* DISTRICT - SEARCHABLE */}
+                {/* ENTITY - SEARCHABLE */}
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.inputLabel}>District *</Text>
+                  <Text style={styles.inputLabel}>Entity</Text>
                   <TouchableOpacity
                     style={styles.pickerWrapper}
                     onPress={() =>
-                      setSearchablePicker({
-                        field: "District",
-                        searchQuery: "",
-                      })
+                      setSearchablePicker({ field: "Entity", searchQuery: "" })
                     }
                   >
                     <Text style={styles.pickerText}>
-                      {meta.District || "Select district"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* BLOCK - SEARCHABLE */}
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.inputLabel}>Block</Text>
-                  <TouchableOpacity
-                    style={styles.pickerWrapper}
-                    onPress={() =>
-                      setSearchablePicker({ field: "Block", searchQuery: "" })
-                    }
-                  >
-                    <Text style={styles.pickerText}>
-                      {meta.Block || "Select block"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* RING - SEARCHABLE */}
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.inputLabel}>Ring</Text>
-                  <TouchableOpacity
-                    style={styles.pickerWrapper}
-                    onPress={() =>
-                      setSearchablePicker({ field: "Ring", searchQuery: "" })
-                    }
-                  >
-                    <Text style={styles.pickerText}>
-                      {meta.Ring || "Select ring"}
+                      {meta.entity || "Select entity"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -452,8 +437,8 @@ const LocationScreen: React.FC = () => {
                     style={styles.input}
                     placeholder="Optional"
                     placeholderTextColor="#94a3b8"
-                    value={meta.ChildRing}
-                    onChangeText={(t) => setMeta({ ...meta, ChildRing: t })}
+                    value={meta.childRing}
+                    onChangeText={(t) => setMeta({ ...meta, childRing: t })}
                   />
                 </View>
 
@@ -514,14 +499,8 @@ const LocationScreen: React.FC = () => {
                 <TouchableOpacity
                   style={styles.searchableItem}
                   onPress={() => {
-                    if (searchablePicker.field === "State") {
-                      setMeta({ ...meta, State: item });
-                    } else if (searchablePicker.field === "District") {
-                      setMeta({ ...meta, District: item });
-                    } else if (searchablePicker.field === "Block") {
-                      setMeta({ ...meta, Block: item });
-                    } else if (searchablePicker.field === "Ring") {
-                      setMeta({ ...meta, Ring: item });
+                    if (searchablePicker.field === "Entity") {
+                      setMeta({ ...meta, entity: item });
                     }
                     setSearchablePicker({ field: null, searchQuery: "" });
                   }}
@@ -542,6 +521,42 @@ const LocationScreen: React.FC = () => {
               onPress={() =>
                 setSearchablePicker({ field: null, searchQuery: "" })
               }
+            >
+              <Text style={styles.searchableModalCancelButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Route Picker Modal */}
+      <Modal
+        visible={showRoutePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRoutePicker(false)}
+      >
+        <View style={styles.searchableModalOverlay}>
+          <View style={styles.searchableModalBox}>
+            <Text style={styles.searchableModalTitle}>Select Route</Text>
+            <FlatList
+              data={["route1", "test", "RouteToGP2"]}
+              keyExtractor={(item) => item}
+              style={styles.searchableList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.searchableItem}
+                  onPress={() => {
+                    setMeta({ ...meta, route: item });
+                    setShowRoutePicker(false);
+                  }}
+                >
+                  <Text style={styles.searchableItemText}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity
+              style={styles.searchableModalCancelButton}
+              onPress={() => setShowRoutePicker(false)}
             >
               <Text style={styles.searchableModalCancelButtonText}>Close</Text>
             </TouchableOpacity>
