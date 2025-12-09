@@ -1,3 +1,4 @@
+import { supabase } from "@/lib/supabase";
 import { uploadVideoWithFileSystem } from "@/lib/video-upload";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -236,6 +237,17 @@ const HomeScreen = () => {
             }
 
             console.log("[upload] Geocoded details saved successfully");
+
+            const { data, error } = await supabase.from("videos").insert({
+              mux_playback_url: muxResponse?.data?.playback_id,
+              asset_id: muxResponse?.data?.asset_id,
+              name: videoFileName,
+            });
+
+            if (error) {
+              console.error("Failed to save video to Supabase:", error);
+              throw new Error("Failed to save video to Supabase");
+            }
 
             setUploadStatus("Finalizing...");
             const updated = [...locations];
