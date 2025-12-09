@@ -96,6 +96,13 @@ const Auth = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {/* Header - Fixed at top */}
+      <View style={styles.header}>
+        <View style={styles.headerSpacer} />
+        <Text style={styles.headerTitle}>Login</Text>
+        <View style={styles.headerSpacer} />
+      </View>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
@@ -104,8 +111,6 @@ const Auth = () => {
           contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.heading}>Log in</Text>
-
           <View style={styles.form}>
             <View style={styles.field}>
               <Text style={styles.label}>Username</Text>
@@ -179,16 +184,31 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 20,
+    backgroundColor: "black",
+    zIndex: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  headerSpacer: {
+    width: 40,
+  },
   scrollContainer: {
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingVertical: 32,
     gap: 28,
-  },
-  heading: {
-    color: "white",
-    fontSize: 24,
-    fontWeight: "700",
   },
   form: {
     gap: 16,

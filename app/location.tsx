@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions, useMicrophonePermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -46,6 +47,7 @@ type RecordingSession = {
 const STORAGE_KEY = "RECORDINGS";
 
 const LocationScreen: React.FC = () => {
+  const router = useRouter();
   const [location, setLocation] = useState<LocationData | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [path, setPath] = useState<LocationData[]>([]);
@@ -60,7 +62,7 @@ const LocationScreen: React.FC = () => {
     childRing: "",
     videoPath: null,
   });
-  const [showDialog, setShowDialog] = useState<boolean>(false);
+  const [showDialog, setShowDialog] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchablePicker, setSearchablePicker] = useState<{
     field: "Entity" | null;
@@ -217,10 +219,8 @@ const LocationScreen: React.FC = () => {
       // Reset recording start time
       setRecordingStartTime(null);
 
-      Alert.alert(
-        "Recording Saved",
-        `Saved ${finalPath.length} points for ${meta.videoName || "Unnamed"}`
-      );
+      // Navigate to home screen after saving
+      router.replace("/");
     } catch (error) {
       console.error("Error saving data:", error);
       Alert.alert("Error", "Could not save location data.");
@@ -270,93 +270,6 @@ const LocationScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* HEADER */}
-        <View style={styles.hero}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Live Location Tracker</Text>
-            <Text style={styles.heroSubtitle}>
-              Capture GPS points with rich metadata.
-            </Text>
-          </View>
-
-          <View
-            style={[
-              styles.statusPill,
-              isRecording ? styles.statusRecording : styles.statusIdle,
-            ]}
-          >
-            <View
-              style={[
-                styles.statusDot,
-                isRecording ? styles.statusDotActive : styles.statusDotIdle,
-              ]}
-            />
-            <Text
-              style={[styles.statusText, !isRecording && styles.statusTextIdle]}
-            >
-              {isRecording ? "Recording in progress" : "Idle"}
-            </Text>
-          </View>
-        </View>
-
-        {/* ERROR */}
-        {errorMsg ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </View>
-        ) : null}
-
-        {/* CURRENT LOCATION CARD */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Current position</Text>
-          {location ? (
-            <View style={styles.metricGrid}>
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Latitude</Text>
-                <Text style={styles.metricValue}>{location.Latitude}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Longitude</Text>
-                <Text style={styles.metricValue}>{location.Longitude}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Accuracy</Text>
-                <Text style={styles.metricValue}>{location.Accuracy}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Timestamp</Text>
-                <Text style={styles.metricValue}>{location.Timestamp}</Text>
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.placeholder}>Waiting for location...</Text>
-          )}
-        </View>
-
-        {/* SUMMARY */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Session summary</Text>
-          <Text style={styles.summaryText}>{recordingSummary}</Text>
-        </View>
-
-        {/* ACTIONS */}
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handleStartPress}
-          >
-            <Text style={styles.primaryButtonText}>Start new recording</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
       {/* METADATA MODAL */}
       <Modal visible={showDialog} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -446,7 +359,7 @@ const LocationScreen: React.FC = () => {
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[styles.modalButton, styles.modalButtonGhost]}
-                    onPress={() => setShowDialog(false)}
+                    onPress={() => router.back()}
                   >
                     <Text style={styles.modalButtonGhostText}>Cancel</Text>
                   </TouchableOpacity>
