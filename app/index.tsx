@@ -239,6 +239,21 @@ const HomeScreen = () => {
           throw new Error("User_id not found in user data");
         }
 
+        // Extract User_Name from the nested structure
+        // Structure: user.data = "{\"Status\":\"...\",\"Result\":{\"User_Name\":...}}"
+        let userName = "";
+        if (user?.data && typeof user.data === "string") {
+          // user.data is a JSON string, parse it
+          const parsedData = JSON.parse(user.data);
+          userName = String(parsedData?.Result?.User_Name || "");
+        } else if (user?.Result?.User_Name) {
+          // Fallback: if Result is already an object
+          userName = String(user.Result.User_Name);
+        } else if (user?.User_Name) {
+          // Fallback: if User_Name is directly on user
+          userName = String(user.User_Name);
+        }
+
         console.log("userId", userId);
         const track = record.path;
 
@@ -331,7 +346,7 @@ const HomeScreen = () => {
             Video_ID: videoFileName,
             Video_Duration: String(videoDuration),
             Capture_Time: captureTime,
-            Created_By: user.User_Name || user.First_Name || "Unknown",
+            Created_By: userName,
             Route_ID: "1",
             Entity_ID: "5",
             Video_Name: record?.meta?.videoName || "Unnamed",
@@ -343,12 +358,14 @@ const HomeScreen = () => {
             block: record?.meta?.blockName || "",
           });
 
+          console.log("geoCodeDataBody", geoCodeDataBody);
+
           console.log("userId", userId);
-          console.log("user object structure:", {
-            hasResult: !!user?.Result,
-            hasUser_id: !!user?.User_id,
-            keys: Object.keys(user || {}),
-          });
+          // console.log("user object structure:", {
+          //   hasResult: !!user?.Result,
+          //   hasUser_id: !!user?.User_id,
+          //   keys: Object.keys(user || {}),
+          // });
 
           try {
             const geocodedResponse = await axios.post(
@@ -390,9 +407,22 @@ const HomeScreen = () => {
                 message: geocodedMessage,
                 response: geocodedResponse.data,
               });
-              throw new Error(
-                `Geocoded details API error (Status: ${geocodedStatus}): ${errorMessage}`
+
+              // Close upload dialog
+              setShowUploadDialog(false);
+              setUploadingIndex(null);
+              setUploadStatus("");
+
+              // Show error alert and cancel the process
+              Alert.alert(
+                "Upload Failed",
+                errorMessage ||
+                  "Failed to save video geocoded details. The upload process has been cancelled.",
+                [{ text: "OK" }]
               );
+
+              // Cancel the process by returning early
+              return;
             }
 
             console.log("[upload] Geocoded details saved successfully");

@@ -75,7 +75,7 @@
       }
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "1"
     }
   }
 }
