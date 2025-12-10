@@ -824,7 +824,7 @@ const HomeScreen = () => {
                         <MaterialIcons
                           name="check-circle"
                           size={16}
-                          color="#6b7280"
+                          color="#2ECC71"
                         />
                       </View>
                     ) : (
