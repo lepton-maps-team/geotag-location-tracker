@@ -1,4 +1,6 @@
+import SessionCard from "@/components/SessionCard";
 import { supabase } from "@/lib/supabase";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
@@ -11,6 +13,7 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -23,16 +26,18 @@ const HomeScreen = () => {
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await AsyncStorage.removeItem("user");
-      router.replace("/auth");
-    } catch (error) {
-      console.error("Failed to log out:", error);
-      Alert.alert("Logout failed", "Please try again.");
+  // Get user initials for avatar
+  const getInitials = useCallback((username: string) => {
+    if (!username) return "U";
+    const parts = username.trim().split(/[\s@]/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
     }
-  }, [router]);
+    return username.substring(0, 2).toUpperCase();
+  }, []);
 
   const handleUpload = useCallback(
     async (record: any, index: number) => {
@@ -65,6 +70,8 @@ const HomeScreen = () => {
         if (error) {
           throw error;
         }
+
+        //    console.log(data);
 
         await supabase.from("surveys").insert({
           name: record?.meta?.Name,
@@ -110,7 +117,7 @@ const HomeScreen = () => {
       if (canShare) {
         try {
           const res = await Sharing.shareAsync(fileUri);
-          console.log("shareAsync", res);
+          //   console.log("shareAsync", res);
           return true;
         } catch {
           return false;
@@ -125,6 +132,25 @@ const HomeScreen = () => {
       setSavingIndex(null);
     }
   }, []);
+
+  const handleEdit = useCallback(
+    async (indexToEdit: number, updatedMeta: any) => {
+      try {
+        const updated = [...locations];
+        updated[indexToEdit] = {
+          ...updated[indexToEdit],
+          meta: updatedMeta,
+        };
+        setLocations(updated);
+        await AsyncStorage.setItem("RECORDINGS", JSON.stringify(updated));
+        Alert.alert("Success", "Session metadata updated successfully.");
+      } catch (error) {
+        console.error("Failed to update metadata:", error);
+        Alert.alert("Error", "Failed to update metadata. Please try again.");
+      }
+    },
+    [locations]
+  );
 
   const handleDelete = useCallback(
     (indexToRemove: number) => {
@@ -176,6 +202,10 @@ const HomeScreen = () => {
             router.replace("/auth");
             return;
           }
+          if (storedUser && isActive) {
+            const userData = JSON.parse(storedUser);
+            setUser(userData);
+          }
         } catch (error) {
           console.error("Failed to verify auth state:", error);
           if (isActive) {
@@ -220,33 +250,70 @@ const HomeScreen = () => {
     );
   }
 
+  // console.log(locations?.length > 0 ? locations[0].path : []);
+
+  // Filter locations based on search query
+  const filteredLocations = locations.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const name = item?.meta?.Name?.toLowerCase() || "";
+    return name.includes(searchQuery.toLowerCase().trim());
+  });
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.hero}>
           <View style={styles.topBar}>
+            <View style={styles.greetingContainer}>
+              <Text style={styles.greetingText}>
+                Hi {user?.username || "User"}
+              </Text>
+              <Text style={styles.dateText}>
+                {new Date().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </Text>
+            </View>
             <TouchableOpacity
-              onPress={handleLogout}
-              style={styles.logoutButton}
+              onPress={() => router.push("/profile")}
+              style={styles.avatarButton}
             >
-              <Text style={styles.logoutButtonText}>Log out</Text>
+              <View style={styles.avatarContainer}>
+                <Text style={styles.avatarText}>
+                  {getInitials(user?.username || "U")}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Your Sessions</Text>
-            <Text style={styles.heroSubtitle}>
-              Review and manage every route you captured in the field.
-            </Text>
+          <View style={styles.searchContainer}>
+            <MaterialIcons
+              name="search"
+              size={20}
+              color="#94a3b8"
+              style={styles.searchIcon}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search sessions..."
+              placeholderTextColor="#828282"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                style={styles.clearButton}
+              >
+                <MaterialIcons name="close" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+            )}
           </View>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => router.push("/location")}
-          >
-            <Text style={styles.primaryButtonText}>Record New Session</Text>
-          </TouchableOpacity>
         </View>
         <FlatList
-          data={locations}
+          data={filteredLocations}
           keyExtractor={(item, index) =>
             item?.meta?.id?.toString() ??
             `${item?.meta?.Name ?? "record"}-${index}`
@@ -254,20 +321,8 @@ const HomeScreen = () => {
           style={styles.list}
           contentContainerStyle={[
             styles.listContainer,
-            !locations.length && styles.listContainerEmpty,
+            !filteredLocations.length && styles.listContainerEmpty,
           ]}
-          ListHeaderComponent={
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Sessions</Text>
-                <Text style={styles.summaryValue}>{locations.length}</Text>
-              </View>
-              <Text style={styles.summaryHint}>
-                Saved sessions stay on this device until you upload or delete
-                them.
-              </Text>
-            </View>
-          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>No recordings yet</Text>
@@ -277,57 +332,35 @@ const HomeScreen = () => {
               </Text>
             </View>
           }
-          renderItem={({ item, index }) => (
-            <View style={styles.recordItem}>
-              <Text style={styles.recordTitle}>
-                {item?.meta?.Name ?? "Unnamed"}
-              </Text>
-              <Text style={styles.metaSummary}>
-                {Object.entries(item?.meta ?? {})
-                  .filter(([key]) => key !== "Name")
-                  .map(([key, value]) => `${key}: ${value}`)
-                  .join(" • ") || "No metadata"}
-              </Text>
-              <View style={styles.recordActions}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.uploadButton]}
-                  onPress={() => handleUpload(item, index)}
-                  disabled={uploadingIndex === index}
-                >
-                  {uploadingIndex === index ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.actionButtonText}>Upload</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.saveButton]}
-                  onPress={() => handleSaveToDevice(item, index)}
-                  disabled={savingIndex === index}
-                >
-                  {savingIndex === index ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.actionButtonText}>Save</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDelete(index)}
-                  disabled={deletingIndex === index}
-                >
-                  {deletingIndex === index ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.actionButtonText}>Delete</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+          renderItem={({ item }) => {
+            // Find the original index in the full locations array
+            const originalItemIndex = locations.findIndex(
+              (loc) => loc === item
+            );
+            return (
+              <SessionCard
+                item={item}
+                originalIndex={originalItemIndex}
+                onUpload={() => handleUpload(item, originalItemIndex)}
+                onSave={() => handleSaveToDevice(item, originalItemIndex)}
+                onDelete={() => handleDelete(originalItemIndex)}
+                onEdit={(updatedMeta) =>
+                  handleEdit(originalItemIndex, updatedMeta)
+                }
+                isUploading={uploadingIndex === originalItemIndex}
+                isSaving={savingIndex === originalItemIndex}
+                isDeleting={deletingIndex === originalItemIndex}
+              />
+            );
+          }}
         />
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push("/location")}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="add" size={28} color="#000000" />
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -341,7 +374,7 @@ const styles = StyleSheet.create({
   loaderContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   container: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 24,
     gap: 20,
     backgroundColor: "black",
@@ -349,56 +382,88 @@ const styles = StyleSheet.create({
   hero: {
     backgroundColor: "black",
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
     gap: 20,
   },
   topBar: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  logoutButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "white",
-    borderWidth: 1,
-    color: "black",
-    borderColor: "rgba(148, 163, 184, 0.25)",
+  greetingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    height: 40,
+    gap: 2,
   },
-  logoutButtonText: {
-    color: "black",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  heroCopy: {
-    gap: 8,
-  },
-  heroTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#e2e8f0",
-  },
-  heroSubtitle: {
-    fontSize: 15,
-    color: "#94a3b8",
-    lineHeight: 20,
-  },
-  primaryButton: {
-    backgroundColor: "white",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignSelf: "flex-start",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  primaryButtonText: {
-    color: "black",
+  greetingText: {
     fontSize: 16,
     fontWeight: "600",
+    color: "#e2e8f0",
+    lineHeight: 20,
+  },
+  dateText: {
+    fontSize: 13,
+    color: "#94a3b8",
+    lineHeight: 18,
+  },
+  avatarButton: {
+    padding: 4,
+  },
+  avatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(99, 102, 241, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  avatarText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1f1f1f",
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+    marginTop: 4,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#828282",
+    padding: 0,
+  },
+  clearButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  fab: {
+    position: "absolute",
+    right: 32,
+    bottom: 40,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "white",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
   },
   list: {
     flexGrow: 1,
@@ -411,34 +476,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
   },
-  summaryCard: {
-    backgroundColor: "#1f2937",
-    borderRadius: 16,
-    padding: 16,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
-  },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  summaryLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#cbd5f5",
-  },
-  summaryValue: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#38bdf8",
-  },
-  summaryHint: {
-    fontSize: 13,
-    color: "#94a3b8",
-    lineHeight: 18,
-  },
   emptyState: {
     alignItems: "center",
     gap: 8,
@@ -447,56 +484,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#e2e8f0",
+    color: "#828282",
   },
   emptySubtitle: {
     fontSize: 14,
-    color: "#94a3b8",
+    color: "#828282",
     textAlign: "center",
     lineHeight: 20,
-  },
-  recordItem: {
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(15, 23, 42, 0.65)",
-    gap: 12,
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  recordTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#e2e8f0",
-  },
-  metaSummary: {
-    fontSize: 13,
-    color: "#9ca3af",
-  },
-  recordActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  uploadButton: {
-    backgroundColor: "rgba(16, 185, 129, 0.9)",
-  },
-  saveButton: {
-    backgroundColor: "rgba(99, 102, 241, 0.9)",
-  },
-  deleteButton: {
-    backgroundColor: "rgba(239, 68, 68, 0.9)",
-  },
-  actionButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "600",
   },
 });
 

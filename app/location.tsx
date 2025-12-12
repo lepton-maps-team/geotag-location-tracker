@@ -2,6 +2,7 @@ import { blocks, districts, states } from "@/constants/lists";
 import { AdaptiveKalman } from "@/lib/filter";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -45,6 +46,7 @@ const STORAGE_KEY = "RECORDINGS";
 const { height } = Dimensions.get("window");
 
 const LocationScreen: React.FC = () => {
+  const router = useRouter();
   const [location, setLocation] = useState<LocationData | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [path, setPath] = useState<LocationData[]>([]);
@@ -56,7 +58,7 @@ const LocationScreen: React.FC = () => {
     Ring: "",
     ChildRing: "",
   });
-  const [showDialog, setShowDialog] = useState<boolean>(false);
+  const [showDialog, setShowDialog] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchablePicker, setSearchablePicker] = useState<{
     field: "State" | "District" | "Block" | "Ring" | null;
@@ -69,6 +71,7 @@ const LocationScreen: React.FC = () => {
     null
   );
   const pathRef = useRef<LocationData[]>([]);
+  const recordingStartTime = useRef<number | null>(null);
 
   // Keep pathRef in sync with path state
   useEffect(() => {
@@ -123,21 +126,27 @@ const LocationScreen: React.FC = () => {
 
               if (distance < 0.3) {
                 // Update current location but don't add to path
+                const elapsedSeconds = recordingStartTime.current
+                  ? Math.floor((Date.now() - recordingStartTime.current) / 1000)
+                  : 0;
                 setLocation({
                   Latitude: smoothLat,
                   Longitude: smoothLng,
                   Accuracy: accuracy || null,
-                  Timestamp: Date.now(),
+                  Timestamp: elapsedSeconds,
                 });
                 return;
               }
             }
 
+            const elapsedSeconds = recordingStartTime.current
+              ? Math.floor((Date.now() - recordingStartTime.current) / 1000)
+              : 0;
             const loc: LocationData = {
               Latitude: smoothLat,
               Longitude: smoothLng,
               Accuracy: accuracy || null,
-              Timestamp: Date.now(),
+              Timestamp: elapsedSeconds,
             };
 
             setLocation(loc);
@@ -184,14 +193,6 @@ const LocationScreen: React.FC = () => {
     }
   };
 
-  const recordingSummary = useMemo(() => {
-    if (!path.length) return "No points recorded yet.";
-    const points = path.length;
-    return `${points} point${
-      points === 1 ? "" : "s"
-    } captured in this session.`;
-  }, [path.length]);
-
   const filteredOptions = useMemo(() => {
     if (!searchablePicker.field) return [];
     const query = searchablePicker.searchQuery.toLowerCase().trim();
@@ -211,20 +212,18 @@ const LocationScreen: React.FC = () => {
     return options.filter((opt) => opt.toLowerCase().includes(query));
   }, [searchablePicker.field, searchablePicker.searchQuery]);
 
-  const handleStartPress = () => {
-    setShowDialog(true);
-  };
-
   const startRecording = () => {
     setShowDialog(false);
     setErrorMsg(null);
     setIsRecording(true);
     setPath([]);
     setLocation(null);
+    recordingStartTime.current = Date.now();
   };
 
   const stopRecording = async () => {
     setIsRecording(false);
+    recordingStartTime.current = null;
 
     try {
       const existing = await AsyncStorage.getItem(STORAGE_KEY);
@@ -241,6 +240,7 @@ const LocationScreen: React.FC = () => {
         "Recording Saved",
         `Saved ${path.length} points for ${meta.Name || "Unnamed"}`
       );
+      router.back();
     } catch (error) {
       console.error("Error saving data:", error);
       Alert.alert("Error", "Could not save location data.");
@@ -265,30 +265,32 @@ const LocationScreen: React.FC = () => {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.recordingContainer}>
           <View style={styles.recordingHeader}>
-            <Text style={styles.recordingTitle}>Recording in Progress</Text>
+            <View style={styles.recordingStatus}>
+              <View style={styles.recordingDot} />
+              <Text style={styles.recordingTitle}>Recording</Text>
+            </View>
             <Text style={styles.recordingSubtitle}>
               {path.length} point{path.length === 1 ? "" : "s"} captured
             </Text>
           </View>
 
           <View style={styles.coordinatesCard}>
-            <Text style={styles.coordinatesTitle}>Current Coordinates</Text>
             {location ? (
               <View style={styles.coordinatesContent}>
-                <View style={styles.coordinateRow}>
-                  <Text style={styles.coordinateLabel}>Latitude:</Text>
+                <View style={styles.coordinateItem}>
+                  <Text style={styles.coordinateLabel}>Latitude</Text>
                   <Text style={styles.coordinateValue}>
                     {location.Latitude.toFixed(6)}
                   </Text>
                 </View>
-                <View style={styles.coordinateRow}>
-                  <Text style={styles.coordinateLabel}>Longitude:</Text>
+                <View style={styles.coordinateItem}>
+                  <Text style={styles.coordinateLabel}>Longitude</Text>
                   <Text style={styles.coordinateValue}>
                     {location.Longitude.toFixed(6)}
                   </Text>
                 </View>
-                <View style={styles.coordinateRow}>
-                  <Text style={styles.coordinateLabel}>Accuracy:</Text>
+                <View style={styles.coordinateItem}>
+                  <Text style={styles.coordinateLabel}>Accuracy</Text>
                   <Text style={styles.coordinateValue}>
                     {location.Accuracy
                       ? `${location.Accuracy.toFixed(2)}m`
@@ -301,14 +303,42 @@ const LocationScreen: React.FC = () => {
             )}
           </View>
 
-          <View style={styles.recordingActions}>
-            <TouchableOpacity
-              style={styles.stopRecordingButton}
-              onPress={stopRecording}
-            >
-              <Text style={styles.stopRecordingButtonText}>Stop Recording</Text>
-            </TouchableOpacity>
+          <View style={styles.recordedPointsCard}>
+            <Text style={styles.recordedPointsTitle}>Recorded Points</Text>
+            {path.length > 0 ? (
+              <ScrollView
+                style={styles.recordedPointsScroll}
+                showsVerticalScrollIndicator={true}
+              >
+                {path.map((point, index) => (
+                  <View key={index} style={styles.recordedPointItem}>
+                    <Text style={styles.recordedPointIndex}>#{index + 1}</Text>
+                    <View style={styles.recordedPointData}>
+                      <Text style={styles.recordedPointLabel}>Lat:</Text>
+                      <Text style={styles.recordedPointValue}>
+                        {point.Latitude.toFixed(6)}
+                      </Text>
+                    </View>
+                    <View style={styles.recordedPointData}>
+                      <Text style={styles.recordedPointLabel}>Lng:</Text>
+                      <Text style={styles.recordedPointValue}>
+                        {point.Longitude.toFixed(6)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.noPointsText}>No points recorded yet</Text>
+            )}
           </View>
+
+          <TouchableOpacity
+            style={styles.stopRecordingButton}
+            onPress={stopRecording}
+          >
+            <Text style={styles.stopRecordingButtonText}>Stop Recording</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -316,104 +346,12 @@ const LocationScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* HEADER */}
-        <View style={styles.hero}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Live Location Tracker</Text>
-            <Text style={styles.heroSubtitle}>
-              Capture GPS points with rich metadata.
-            </Text>
-          </View>
-
-          <View
-            style={[
-              styles.statusPill,
-              isRecording ? styles.statusRecording : styles.statusIdle,
-            ]}
-          >
-            <View
-              style={[
-                styles.statusDot,
-                isRecording ? styles.statusDotActive : styles.statusDotIdle,
-              ]}
-            />
-            <Text
-              style={[styles.statusText, !isRecording && styles.statusTextIdle]}
-            >
-              {isRecording ? "Recording in progress" : "Idle"}
-            </Text>
-          </View>
-        </View>
-
-        {/* ERROR */}
-        {errorMsg ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </View>
-        ) : null}
-
-        {/* CURRENT LOCATION CARD */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Current position</Text>
-          {location ? (
-            <View style={styles.metricGrid}>
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Latitude</Text>
-                <Text style={styles.metricValue}>{location.Latitude}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Longitude</Text>
-                <Text style={styles.metricValue}>{location.Longitude}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Accuracy</Text>
-                <Text style={styles.metricValue}>{location.Accuracy}</Text>
-              </View>
-
-              <View style={styles.metricCell}>
-                <Text style={styles.metricLabel}>Timestamp</Text>
-                <Text style={styles.metricValue}>{location.Timestamp}</Text>
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.placeholder}>Waiting for location...</Text>
-          )}
-        </View>
-
-        {/* SUMMARY */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Session summary</Text>
-          <Text style={styles.summaryText}>{recordingSummary}</Text>
-        </View>
-
-        {/* ACTIONS */}
-        <View style={styles.actions}>
-          {!isRecording ? (
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={handleStartPress}
-            >
-              <Text style={styles.primaryButtonText}>Start new recording</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.stopButton]}
-              onPress={stopRecording}
-            >
-              <Text style={styles.primaryButtonText}>Stop & save</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </ScrollView>
-
       {/* METADATA MODAL */}
-      <Modal visible={showDialog} transparent animationType="slide">
+      <Modal
+        visible={showDialog && !isRecording}
+        transparent
+        animationType="slide"
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{ flex: 1 }}
@@ -522,7 +460,7 @@ const LocationScreen: React.FC = () => {
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonGhost]}
-                  onPress={() => setShowDialog(false)}
+                  onPress={() => router.back()}
                 >
                   <Text style={styles.modalButtonGhostText}>Cancel</Text>
                 </TouchableOpacity>
@@ -598,7 +536,11 @@ const LocationScreen: React.FC = () => {
               }
             />
             <TouchableOpacity
-              style={[styles.modalButton, styles.modalButtonGhost]}
+              style={[
+                styles.modalButton,
+                styles.modalButtonGhost,
+                { flex: 0, width: "100%" },
+              ]}
               onPress={() =>
                 setSearchablePicker({ field: null, searchQuery: "" })
               }
@@ -905,81 +847,134 @@ const styles = StyleSheet.create({
   },
   recordingContainer: {
     flex: 1,
-    padding: 20,
-    gap: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+    backgroundColor: "black",
   },
   recordingHeader: {
+    marginBottom: 24,
     gap: 8,
+  },
+  recordingStatus: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 10,
+  },
+  recordingDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#ef4444",
   },
   recordingTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#e2e8f0",
+    color: "#ffffff",
   },
   recordingSubtitle: {
-    fontSize: 16,
-    color: "#94a3b8",
+    fontSize: 14,
+    color: "#828282",
+    marginLeft: 22,
   },
   coordinatesCard: {
-    backgroundColor: "rgba(15, 23, 42, 0.9)",
-    borderRadius: 20,
-    padding: 24,
+    backgroundColor: "#1f1f1f",
+    borderRadius: 12,
+    padding: 16,
     gap: 16,
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.15)",
-  },
-  coordinatesTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#e2e8f0",
-    marginBottom: 8,
+    borderColor: "rgba(255,255,255,0.06)",
+    marginBottom: 24,
   },
   coordinatesContent: {
     gap: 16,
   },
-  coordinateRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(148, 163, 184, 0.1)",
+  coordinateItem: {
+    gap: 6,
   },
   coordinateLabel: {
-    fontSize: 16,
-    color: "#94a3b8",
-    fontWeight: "500",
+    fontSize: 13,
+    color: "#828282",
+    fontWeight: "400",
   },
   coordinateValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#38bdf8",
+    color: "#ffffff",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
   waitingText: {
-    fontSize: 16,
-    color: "#94a3b8",
+    fontSize: 14,
+    color: "#828282",
     textAlign: "center",
     paddingVertical: 20,
   },
-  recordingActions: {
-    marginTop: "auto",
+  recordedPointsCard: {
+    backgroundColor: "#1f1f1f",
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    marginBottom: 24,
+    maxHeight: 300,
+  },
+  recordedPointsTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#ffffff",
+    marginBottom: 4,
+  },
+  recordedPointsScroll: {
+    maxHeight: 250,
+  },
+  recordedPointItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  recordedPointIndex: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#828282",
+    minWidth: 30,
+  },
+  recordedPointData: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  recordedPointLabel: {
+    fontSize: 12,
+    color: "#828282",
+    fontWeight: "400",
+  },
+  recordedPointValue: {
+    fontSize: 13,
+    color: "#ffffff",
+    fontWeight: "500",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  noPointsText: {
+    fontSize: 14,
+    color: "#828282",
+    textAlign: "center",
+    paddingVertical: 20,
   },
   stopRecordingButton: {
     backgroundColor: "#ef4444",
     paddingVertical: 16,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#b91c1c",
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
+    marginTop: "auto",
   },
   stopRecordingButtonText: {
     color: "#fff",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
   },
 });
