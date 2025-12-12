@@ -72,6 +72,7 @@ const LocationScreen: React.FC = () => {
   );
   const pathRef = useRef<LocationData[]>([]);
   const recordingStartTime = useRef<number | null>(null);
+  const firstPointTimestamp = useRef<number | null>(null);
 
   // Keep pathRef in sync with path state
   useEffect(() => {
@@ -118,7 +119,22 @@ const LocationScreen: React.FC = () => {
 
             // Distance filter - only add if moved at least 0.3m
             const currentPath = pathRef.current;
-            if (currentPath.length > 0) {
+            const currentTime = Date.now();
+
+            // Calculate timestamp: 0 for first point, relative to first point for others
+            let timestamp = 0;
+            if (currentPath.length === 0) {
+              // First point - store the actual timestamp and use 0
+              firstPointTimestamp.current = currentTime;
+              timestamp = 0;
+            } else {
+              // Subsequent points - calculate seconds since first point
+              if (firstPointTimestamp.current) {
+                timestamp = Math.floor(
+                  (currentTime - firstPointTimestamp.current) / 1000
+                );
+              }
+
               const prev = currentPath[currentPath.length - 1];
               const dx = smoothLat - prev.Latitude;
               const dy = smoothLng - prev.Longitude;
@@ -126,27 +142,21 @@ const LocationScreen: React.FC = () => {
 
               if (distance < 0.3) {
                 // Update current location but don't add to path
-                const elapsedSeconds = recordingStartTime.current
-                  ? Math.floor((Date.now() - recordingStartTime.current) / 1000)
-                  : 0;
                 setLocation({
                   Latitude: smoothLat,
                   Longitude: smoothLng,
                   Accuracy: accuracy || null,
-                  Timestamp: elapsedSeconds,
+                  Timestamp: timestamp,
                 });
                 return;
               }
             }
 
-            const elapsedSeconds = recordingStartTime.current
-              ? Math.floor((Date.now() - recordingStartTime.current) / 1000)
-              : 0;
             const loc: LocationData = {
               Latitude: smoothLat,
               Longitude: smoothLng,
               Accuracy: accuracy || null,
-              Timestamp: elapsedSeconds,
+              Timestamp: timestamp,
             };
 
             setLocation(loc);
@@ -219,6 +229,7 @@ const LocationScreen: React.FC = () => {
     setPath([]);
     setLocation(null);
     recordingStartTime.current = Date.now();
+    firstPointTimestamp.current = null; // Reset first point timestamp
   };
 
   const stopRecording = async () => {
