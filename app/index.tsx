@@ -53,6 +53,7 @@ const HomeScreen = () => {
         setUploadingIndex(index);
         const storedUser = await AsyncStorage.getItem("user");
         const user = JSON.parse(storedUser as string);
+        console.log(user);
         const track = record.path;
         const { data, error } = await supabase
           .from("gps_tracks")
@@ -77,7 +78,7 @@ const HomeScreen = () => {
           name: record?.meta?.Name,
           gps_track_id: data.id,
           timestamp: Date.now(),
-          user_id: user.id,
+          user_id: user.user_id,
           state: record?.meta?.State,
           district: record?.meta?.District,
           block: record?.meta?.Block,
@@ -258,6 +259,8 @@ const HomeScreen = () => {
     const name = item?.meta?.Name?.toLowerCase() || "";
     return name.includes(searchQuery.toLowerCase().trim());
   });
+
+  console.log(user);
 
   return (
     <SafeAreaView style={styles.safeArea}>

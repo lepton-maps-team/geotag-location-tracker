@@ -87,7 +87,7 @@ const Auth = () => {
 
           <View style={styles.form}>
             <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Username</Text>
               <TextInput
                 placeholder="hello@company.com"
                 placeholderTextColor="#6b7280"
