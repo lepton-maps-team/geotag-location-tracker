@@ -232,7 +232,7 @@ const LocationScreen: React.FC = () => {
     firstPointTimestamp.current = null; // Reset first point timestamp
   };
 
-  const stopRecording = async () => {
+  const stopRecording = async (navigateBack: boolean = true) => {
     setIsRecording(false);
     recordingStartTime.current = null;
 
@@ -251,7 +251,10 @@ const LocationScreen: React.FC = () => {
         "Recording Saved",
         `Saved ${path.length} points for ${meta.Name || "Unnamed"}`
       );
-      router.back();
+
+      if (navigateBack) {
+        router.back();
+      }
     } catch (error) {
       console.error("Error saving data:", error);
       Alert.alert("Error", "Could not save location data.");
@@ -276,13 +279,21 @@ const LocationScreen: React.FC = () => {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.recordingContainer}>
           <View style={styles.recordingHeader}>
-            <View style={styles.recordingStatus}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingTitle}>Recording</Text>
+            <View style={styles.recordingHeaderLeft}>
+              <View style={styles.recordingStatus}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingTitle}>Recording</Text>
+              </View>
+              <Text style={styles.recordingSubtitle}>
+                {path.length} point{path.length === 1 ? "" : "s"} captured
+              </Text>
             </View>
-            <Text style={styles.recordingSubtitle}>
-              {path.length} point{path.length === 1 ? "" : "s"} captured
-            </Text>
+            <TouchableOpacity
+              style={styles.stopRecordingChip}
+              onPress={() => stopRecording(true)}
+            >
+              <Text style={styles.stopRecordingChipText}>Stop & save</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.coordinatesCard}>
@@ -343,13 +354,6 @@ const LocationScreen: React.FC = () => {
               <Text style={styles.noPointsText}>No points recorded yet</Text>
             )}
           </View>
-
-          <TouchableOpacity
-            style={styles.stopRecordingButton}
-            onPress={stopRecording}
-          >
-            <Text style={styles.stopRecordingButtonText}>Stop Recording</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -863,8 +867,14 @@ const styles = StyleSheet.create({
     backgroundColor: "black",
   },
   recordingHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 24,
-    gap: 8,
+  },
+  recordingHeaderLeft: {
+    flexShrink: 1,
+    gap: 6,
   },
   recordingStatus: {
     flexDirection: "row",
@@ -885,7 +895,19 @@ const styles = StyleSheet.create({
   recordingSubtitle: {
     fontSize: 14,
     color: "#828282",
-    marginLeft: 22,
+  },
+  stopRecordingChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stopRecordingChipText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "600",
   },
   coordinatesCard: {
     backgroundColor: "#1f1f1f",
