@@ -232,6 +232,21 @@ const HomeScreen = () => {
               geocodedMessage = geocodedResponse.data.Message || "";
             }
 
+            console.log("geocodedStatus", geocodedStatus);
+
+            if (geocodedStatus === "5004") {
+              Alert.alert(
+                "Upload Failed",
+                "Not enough data for GeoLocation tracking.Try again with more tracking points.",
+                [{ text: "OK" }]
+              );
+              //  Close upload dialog
+              setShowUploadDialog(false);
+              setUploadingIndex(null);
+              setUploadStatus("");
+              return;
+            }
+
             // Check if status is success (5001)
             if (geocodedStatus !== "5001") {
               const errorMessage =

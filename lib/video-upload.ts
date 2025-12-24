@@ -214,6 +214,7 @@ export const uploadVideo = async (
       headers,
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
     });
+    console.log(uploadResult, "uploadResult");
 
     if (uploadResult.status !== 200) {
       throw new Error(
@@ -247,7 +248,6 @@ export const uploadVideoWithFileSystem = async (
       throw new Error(`Video file not found at path: ${videoPath}`);
     }
 
-    // Use provided fileName, ensure it has .mp4 extension
     const finalFileName = fileName.endsWith(".mp4")
       ? fileName
       : `${fileName}.mp4`;
@@ -255,54 +255,25 @@ export const uploadVideoWithFileSystem = async (
     const fileType = "video/mp4";
     const dateTimestamp = new Date().toISOString();
 
-    console.log(finalFileName, "fileName");
-    console.log(fileSize, "fileSize");
-    console.log(fileType, "fileType");
-
-    // Get upload parameters - this will tell us if multipart is needed
+    // Get upload parameters
     const uploadParams = await getUploadParameters(
       { size: fileSize, type: fileType },
       finalFileName
     );
 
-    // Check if multipart upload is needed
+    // --- Multipart Upload ---
     if ("needsMultipart" in uploadParams && uploadParams.needsMultipart) {
       console.log("=== Starting Multipart Upload ===");
       const multipartData = uploadParams as MultipartInitResponse;
-      console.log("Multipart data:", multipartData);
-
-      const { uploadId, fileKey, totalChunks, chunkSize } = multipartData;
+      const { uploadId, totalChunks, chunkSize } = multipartData;
       const parts: Array<{ ETag: string; PartNumber: number }> = [];
 
-      // Process chunks sequentially to avoid memory issues
-      // This is slower but prevents OOM errors for large files
-      console.log("Starting sequential multipart upload to manage memory...");
-
-      // Try to use fetch first - cache the blob to avoid multiple reads
-      let cachedBlob: Blob | null = null;
-      let fileBinary: string | null = null;
-
-      try {
-        console.log("Attempting to use fetch for file access...");
-        const response = await fetch(videoPath);
-        if (response.ok) {
-          cachedBlob = await response.blob();
-          console.log(
-            "File loaded via fetch, will use blob slicing for chunks"
-          );
-        } else {
-          throw new Error("Fetch response not OK");
-        }
-      } catch (e) {
-        console.log("Fetch not available, reading file via FileSystem...");
-        console.log("Warning: This will load the entire file into memory");
-        // Fallback to FileSystem - read file once
-        const fileBase64 = await FileSystem.readAsStringAsync(videoPath, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        fileBinary = atob(fileBase64);
-        console.log("File loaded into memory, starting chunk extraction...");
-      }
+      // Generate a short, unique ID for temp files to avoid filename length limits
+      const localSessionId = Math.random().toString(36).substring(7);
+      console.log(
+        "Starting sequential multipart upload via temp files...",
+        localSessionId
+      );
 
       for (let j = 1; j <= totalChunks; j++) {
         if (abortController?.signal.aborted) {
@@ -310,10 +281,13 @@ export const uploadVideoWithFileSystem = async (
         }
 
         const start = (j - 1) * chunkSize;
-        const end = Math.min(j * chunkSize, fileSize);
+        const length = Math.min(chunkSize, fileSize - start);
+
+        // FIX: Use short local ID instead of long uploadId
+        const tempChunkPath = `${FileSystem.cacheDirectory}up_${localSessionId}_${j}.tmp`;
 
         try {
-          // Get signed URL for this part
+          // 1. Get Signed URL
           const partUrl = await signPart(
             { size: fileSize, type: fileType },
             finalFileName,
@@ -322,84 +296,58 @@ export const uploadVideoWithFileSystem = async (
             dateTimestamp
           );
 
-          // Read chunk from file
-          let chunkBlob: Blob;
-
-          if (cachedBlob) {
-            // Use cached blob - slice it (memory efficient)
-            chunkBlob = cachedBlob.slice(start, end);
-            console.log(
-              `Chunk ${j}/${totalChunks} extracted via blob slice: ${start}-${end} (${chunkBlob.size} bytes)`
-            );
-          } else if (fileBinary) {
-            // Use cached file data
-            const chunkBinary = fileBinary.slice(start, end);
-            const chunkBytes = new Uint8Array(chunkBinary.length);
-            for (let k = 0; k < chunkBinary.length; k++) {
-              chunkBytes[k] = chunkBinary.charCodeAt(k);
-            }
-            chunkBlob = new Blob([chunkBytes], {
-              type: "application/octet-stream",
-            });
-            console.log(
-              `Chunk ${j}/${totalChunks} extracted from cache: ${start}-${end} (${chunkBytes.length} bytes)`
-            );
-          } else {
-            throw new Error("No file data available for chunk extraction");
-          }
-
-          // Upload the chunk
-          const chunkResponse = await fetch(partUrl, {
-            method: "PUT",
-            headers: { "Content-Type": "application/octet-stream" },
-            body: chunkBlob,
-            signal: abortController?.signal,
+          // 2. Read chunk from main video file
+          const chunkBase64 = await FileSystem.readAsStringAsync(videoPath, {
+            encoding: FileSystem.EncodingType.Base64,
+            position: start,
+            length: length,
           });
 
-          if (!chunkResponse.ok) {
+          // 3. Write chunk to a temporary file
+          await FileSystem.writeAsStringAsync(tempChunkPath, chunkBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          // 4. Upload the temp file using Native Uploader
+          const uploadResult = await FileSystem.uploadAsync(
+            partUrl,
+            tempChunkPath,
+            {
+              httpMethod: "PUT",
+              headers: { "Content-Type": "application/octet-stream" },
+              uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+            }
+          );
+
+          if (uploadResult.status < 200 || uploadResult.status >= 300) {
             throw new Error(
-              `Part ${j} upload failed: ${chunkResponse.statusText}`
+              `Part ${j} upload failed: ${uploadResult.status} - ${uploadResult.body}`
             );
           }
 
+          // Handle case-insensitive headers
           const eTag =
-            chunkResponse.headers.get("ETag")?.replaceAll('"', "") || "";
+            (
+              uploadResult.headers["ETag"] || uploadResult.headers["etag"]
+            )?.replaceAll('"', "") || "";
 
           parts.push({ ETag: eTag, PartNumber: j });
-          console.log(
-            `✅ Part ${j}/${totalChunks} uploaded (${(
-              (j / totalChunks) *
-              100
-            ).toFixed(1)}%)`
-          );
-
-          // Clear the blob reference to help GC
-          chunkBlob = null as any;
-
-          // Small delay to allow garbage collection between chunks
-          if (j < totalChunks) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
+          console.log(`✅ Part ${j}/${totalChunks} uploaded`);
         } catch (error) {
           console.error(`❌ Chunk ${j} upload failed:`, error);
           throw error;
+        } finally {
+          // 5. Cleanup: Delete the temp chunk file silently
+          await FileSystem.deleteAsync(tempChunkPath, {
+            idempotent: true,
+          }).catch(() => {});
         }
       }
 
-      // Clear file cache after upload to free memory
-      cachedBlob = null;
-      fileBinary = null;
-
       console.log(`All ${totalChunks} parts uploaded successfully`);
 
-      if (abortController?.signal.aborted) {
-        throw new Error("Upload canceled by user");
-      }
-
-      // Sort parts by PartNumber before completing
-      parts.sort((a, b) => a.PartNumber - b.PartNumber);
-
       // Complete multipart upload
+      parts.sort((a, b) => a.PartNumber - b.PartNumber);
       const finalUrl = await completeMultipartUpload(
         { size: fileSize, type: fileType },
         finalFileName,
@@ -408,27 +356,17 @@ export const uploadVideoWithFileSystem = async (
         dateTimestamp
       );
 
-      console.log("✅ Multipart upload complete");
-
       return {
         dateTimestamp: dateTimestamp,
         fileSizeBytes: fileSize,
         finalUrl: finalUrl,
       };
     } else {
-      // Single PUT upload
+      // --- Single Upload (Existing Logic) ---
       console.log("=== Starting Single PUT Upload ===");
-      if (!("url" in uploadParams)) {
-        throw new Error("Invalid upload parameters received");
-      }
+      if (!("url" in uploadParams)) throw new Error("Invalid params");
+
       const { url, headers } = uploadParams;
-
-      console.log("=== Upload Params ===");
-      console.log("url:", url);
-      console.log("headers:", headers);
-      console.log("=====================");
-
-      // Use FileSystem.uploadAsync for React Native
       const uploadResult = await FileSystem.uploadAsync(url, videoPath, {
         httpMethod: "PUT",
         headers,
@@ -438,15 +376,11 @@ export const uploadVideoWithFileSystem = async (
       if (uploadResult.status !== 200) {
         throw new Error(`Upload failed: ${uploadResult.status}`);
       }
-
-      const finalUrl = `https://bharatnet.r2.rio.software/${finalFileName}`;
-
       console.log("✅ Single upload complete");
-
       return {
         dateTimestamp: dateTimestamp,
         fileSizeBytes: fileSize,
-        finalUrl: finalUrl,
+        finalUrl: `https://bharatnet.r2.rio.software/${finalFileName}`,
       };
     }
   } catch (error) {
