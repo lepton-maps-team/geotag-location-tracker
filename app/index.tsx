@@ -89,9 +89,12 @@ const HomeScreen = () => {
         }
 
         console.log("userId", userId);
-        const track = record.path;
+        const trackPath = record.pathFile;
 
-        console.log("track", track);
+        const track = await FileSystem.readAsStringAsync(trackPath);
+        const trackData = JSON.parse(track);
+
+        console.log("trackData", trackData);
 
         if (record.videoUri) {
           setUploadStatus("Generating video ID...");
@@ -137,8 +140,9 @@ const HomeScreen = () => {
 
           // Calculate video duration from track timestamps (in seconds)
           const videoDuration =
-            track.length > 0
-              ? track[track.length - 1].Timestamp - track[0].Timestamp
+            trackData.length > 0
+              ? trackData[trackData.length - 1].Timestamp -
+                trackData[0].Timestamp
               : 0;
 
           // Format capture time from recordedAt timestamp
@@ -162,7 +166,7 @@ const HomeScreen = () => {
           const entityId = record?.meta?.entity;
 
           // Convert location path to videoGeoLocation format
-          const videoGeoLocation = track.map((point: any) => ({
+          const videoGeoLocation = trackData.map((point: any) => ({
             Latitude: String(point.Latitude),
             Longitude: String(point.Longitude),
             Accuracy: point.Accuracy ? String(point.Accuracy) : "0",
@@ -361,12 +365,13 @@ const HomeScreen = () => {
     async (record: any, index: number) => {
       try {
         setSavingTrackIndex(index);
-
-        const track = record.path; // the array you want
-        console.log("Track:", track);
+        const trackPath = record.pathFile;
+        const track = await FileSystem.readAsStringAsync(trackPath);
+        const trackData = JSON.parse(track);
+        console.log("trackData", trackData);
 
         // Convert path array to readable text
-        const trackText = JSON.stringify(track, null, 2);
+        const trackText = JSON.stringify(trackData, null, 2);
 
         const randomId = Math.random().toString(36).substring(2, 10);
         const fileName = `${record?.meta?.videoName || "path"}-${randomId}.txt`;
@@ -576,6 +581,8 @@ const HomeScreen = () => {
       </View>
     );
   }
+
+  //console.log("locations", locations);
 
   return (
     <SafeAreaView style={styles.safeArea}>

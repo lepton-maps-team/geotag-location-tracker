@@ -4,6 +4,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
+
 import {
   Alert,
   FlatList,
@@ -39,9 +40,10 @@ type SessionMeta = {
 
 type RecordingSession = {
   meta: SessionMeta;
-  path: LocationData[];
+  //path: LocationData[];
   uploaded?: boolean;
   videoUri?: string | null;
+  pathFile?: string | null;
 };
 
 const STORAGE_KEY = "RECORDINGS";
@@ -169,8 +171,11 @@ const LocationScreen: React.FC = () => {
     setIsRecording(false);
 
     try {
-      // --- MOVE VIDEO TO DOCUMENT DIRECTORY (SHAREABLE) ---
-      let shareableVideoUri = finalVideoUri;
+      /* --------------------------------------------------
+         1. Move video to app document directory
+      -------------------------------------------------- */
+      let shareableVideoUri: string | null = finalVideoUri;
+
       if (finalVideoUri) {
         try {
           const videosDir = FileSystem.documentDirectory + "videos/";
@@ -192,42 +197,146 @@ const LocationScreen: React.FC = () => {
 
           shareableVideoUri = dest;
         } catch (fsError) {
-          console.error("Error while checking/saving video file:", fsError);
+          console.error("Video move failed:", fsError);
+          // Keep original URI as fallback
+          shareableVideoUri = finalVideoUri;
         }
       }
 
-      // --- SAVE METADATA + VIDEO PATH ---
-      const existing = await AsyncStorage.getItem(STORAGE_KEY);
-      const oldSessions: RecordingSession[] = existing
-        ? JSON.parse(existing)
-        : [];
+      /* --------------------------------------------------
+         2. Save GPS path as FILE (NOT AsyncStorage)
+      -------------------------------------------------- */
+      const pathsDir = FileSystem.documentDirectory + "paths/";
+      await FileSystem.makeDirectoryAsync(pathsDir, {
+        intermediates: true,
+      });
 
+      const pathFileName = `path_${Date.now()}.json`;
+      const pathFileUri = pathsDir + pathFileName;
+
+      await FileSystem.writeAsStringAsync(
+        pathFileUri,
+        JSON.stringify(finalPath)
+      );
+
+      /* --------------------------------------------------
+         3. Load existing sessions SAFELY
+      -------------------------------------------------- */
+      let oldSessions: RecordingSession[] = [];
+
+      try {
+        const existing = await AsyncStorage.getItem(STORAGE_KEY);
+        if (existing) {
+          const parsed = JSON.parse(existing);
+          if (Array.isArray(parsed)) {
+            oldSessions = parsed;
+          }
+        }
+      } catch (parseError) {
+        console.error("Corrupted STORAGE_KEY, resetting:", parseError);
+        oldSessions = [];
+        await AsyncStorage.removeItem(STORAGE_KEY);
+      }
+
+      /* --------------------------------------------------
+         4. Create new session (SMALL JSON ONLY)
+      -------------------------------------------------- */
       const newSession: RecordingSession = {
         meta: {
           ...meta,
-          videoPath: shareableVideoUri ?? null,
-          recordedAt: recordingStartTime || Date.now(), // Store recording start time
+          videoPath: shareableVideoUri,
+          recordedAt: recordingStartTime || Date.now(),
         },
-        path: finalPath,
+        pathFile: pathFileUri, // 🔥 reference, not data
         uploaded: false,
         videoUri: shareableVideoUri,
       };
 
-      const updated = [...oldSessions, newSession];
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      /* --------------------------------------------------
+         5. Save updated session list
+      -------------------------------------------------- */
+      const updatedSessions = [...oldSessions, newSession];
 
-      // Reset recording start time
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSessions));
+
+      /* --------------------------------------------------
+         6. Cleanup + navigate
+      -------------------------------------------------- */
       setRecordingStartTime(null);
-
-      // Navigate to home screen after saving
       router.replace("/");
     } catch (error) {
-      console.error("Error saving data:", error);
-      Alert.alert("Error", "Could not save location data.");
-    } finally {
+      console.error("Error saving recording session:", error);
+      Alert.alert("Error", "Could not save recording data.");
       setRecordingStartTime(null);
     }
   };
+
+  // const handleRecordingStop = async (
+  //   finalPath: LocationData[],
+  //   finalVideoUri: string | null
+  // ) => {
+  //   setIsRecording(false);
+
+  //   try {
+  //     // --- MOVE VIDEO TO DOCUMENT DIRECTORY (SHAREABLE) ---
+  //     let shareableVideoUri = finalVideoUri;
+  //     if (finalVideoUri) {
+  //       try {
+  //         const videosDir = FileSystem.documentDirectory + "videos/";
+  //         const info = await FileSystem.getInfoAsync(videosDir);
+
+  //         if (!info.exists) {
+  //           await FileSystem.makeDirectoryAsync(videosDir, {
+  //             intermediates: true,
+  //           });
+  //         }
+
+  //         const fileName = finalVideoUri.split("/").pop();
+  //         const dest = videosDir + fileName;
+
+  //         await FileSystem.moveAsync({
+  //           from: finalVideoUri,
+  //           to: dest,
+  //         });
+
+  //         shareableVideoUri = dest;
+  //       } catch (fsError) {
+  //         console.error("Error while checking/saving video file:", fsError);
+  //       }
+  //     }
+
+  //     // --- SAVE METADATA + VIDEO PATH ---
+  //     const existing = await AsyncStorage.getItem(STORAGE_KEY);
+  //     const oldSessions: RecordingSession[] = existing
+  //       ? JSON.parse(existing)
+  //       : [];
+
+  //     const newSession: RecordingSession = {
+  //       meta: {
+  //         ...meta,
+  //         videoPath: shareableVideoUri ?? null,
+  //         recordedAt: recordingStartTime || Date.now(), // Store recording start time
+  //       },
+  //       path: finalPath,
+  //       uploaded: false,
+  //       videoUri: shareableVideoUri,
+  //     };
+
+  //     const updated = [...oldSessions, newSession];
+  //     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+  //     // Reset recording start time
+  //     setRecordingStartTime(null);
+
+  //     // Navigate to home screen after saving
+  //     router.replace("/");
+  //   } catch (error) {
+  //     console.error("Error saving data:", error);
+  //     Alert.alert("Error", "Could not save location data.");
+  //   } finally {
+  //     setRecordingStartTime(null);
+  //   }
+  // };
 
   const startRecording = () => {
     setShowDialog(false);

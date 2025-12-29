@@ -57,24 +57,27 @@ const Auth = () => {
 
       console.log("Login API Response:", response.data);
 
-      const { Status, Message, Result } = response.data;
-      console.log("Status", Status);
-      if (response.data) {
-        await AsyncStorage.setItem("user", JSON.stringify(response.data));
-        setUsername("");
-        setPassword("");
-        router.replace("/");
-      }
+      // Parse the JSON string from response.data.data
+      const responseData =
+        typeof response.data === "string"
+          ? JSON.parse(response.data)
+          : response.data.data
+          ? JSON.parse(response.data.data)
+          : response.data;
 
-      if (Status !== "5006" || !Result) {
+      const { Status, Message, Result } = responseData;
+      console.log("Status", Status);
+
+      if (Status !== "5001" || !Result) {
         setError(Message || "Invalid username or password.");
         return;
       }
 
       // Save the full response to AsyncStorage
-
+      await AsyncStorage.setItem("user", JSON.stringify(Result));
       setUsername("");
       setPassword("");
+      router.replace("/");
     } catch (caughtError: any) {
       console.error("Login error:", caughtError);
       if (caughtError.response) {
