@@ -51,7 +51,8 @@ const RecordingView: React.FC<RecordingViewProps> = ({ onStop }) => {
     if (!cameraRef.current) return;
 
     setIsVideoRecording(true);
-    const recordingPromise = cameraRef.current.recordAsync();
+    // Record in low quality to save space
+    const recordingPromise = cameraRef.current.recordAsync({});
     videoRecordingPromiseRef.current = recordingPromise;
 
     recordingPromise
@@ -202,6 +203,8 @@ const RecordingView: React.FC<RecordingViewProps> = ({ onStop }) => {
         style={styles.camera}
         facing="back"
         onCameraReady={handleCameraReady}
+        videoQuality="480p"
+        videoBitrate={400_000}
       />
 
       {/* Location overlay - top right */}

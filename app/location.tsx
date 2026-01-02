@@ -132,14 +132,6 @@ const LocationScreen: React.FC = () => {
     }
   };
 
-  const recordingSummary = useMemo(() => {
-    if (!path.length) return "No points recorded yet.";
-    const points = path.length;
-    return `${points} point${
-      points === 1 ? "" : "s"
-    } captured in this session.`;
-  }, [path.length]);
-
   const filteredOptions = useMemo(() => {
     if (!searchablePicker.field) return [];
     const query = searchablePicker.searchQuery.toLowerCase().trim();
@@ -270,73 +262,6 @@ const LocationScreen: React.FC = () => {
       setRecordingStartTime(null);
     }
   };
-
-  // const handleRecordingStop = async (
-  //   finalPath: LocationData[],
-  //   finalVideoUri: string | null
-  // ) => {
-  //   setIsRecording(false);
-
-  //   try {
-  //     // --- MOVE VIDEO TO DOCUMENT DIRECTORY (SHAREABLE) ---
-  //     let shareableVideoUri = finalVideoUri;
-  //     if (finalVideoUri) {
-  //       try {
-  //         const videosDir = FileSystem.documentDirectory + "videos/";
-  //         const info = await FileSystem.getInfoAsync(videosDir);
-
-  //         if (!info.exists) {
-  //           await FileSystem.makeDirectoryAsync(videosDir, {
-  //             intermediates: true,
-  //           });
-  //         }
-
-  //         const fileName = finalVideoUri.split("/").pop();
-  //         const dest = videosDir + fileName;
-
-  //         await FileSystem.moveAsync({
-  //           from: finalVideoUri,
-  //           to: dest,
-  //         });
-
-  //         shareableVideoUri = dest;
-  //       } catch (fsError) {
-  //         console.error("Error while checking/saving video file:", fsError);
-  //       }
-  //     }
-
-  //     // --- SAVE METADATA + VIDEO PATH ---
-  //     const existing = await AsyncStorage.getItem(STORAGE_KEY);
-  //     const oldSessions: RecordingSession[] = existing
-  //       ? JSON.parse(existing)
-  //       : [];
-
-  //     const newSession: RecordingSession = {
-  //       meta: {
-  //         ...meta,
-  //         videoPath: shareableVideoUri ?? null,
-  //         recordedAt: recordingStartTime || Date.now(), // Store recording start time
-  //       },
-  //       path: finalPath,
-  //       uploaded: false,
-  //       videoUri: shareableVideoUri,
-  //     };
-
-  //     const updated = [...oldSessions, newSession];
-  //     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-  //     // Reset recording start time
-  //     setRecordingStartTime(null);
-
-  //     // Navigate to home screen after saving
-  //     router.replace("/");
-  //   } catch (error) {
-  //     console.error("Error saving data:", error);
-  //     Alert.alert("Error", "Could not save location data.");
-  //   } finally {
-  //     setRecordingStartTime(null);
-  //   }
-  // };
 
   const startRecording = () => {
     setShowDialog(false);

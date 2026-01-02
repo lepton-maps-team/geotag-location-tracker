@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { uploadVideoWithFileSystem } from "@/lib/video-upload";
+import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
@@ -7,7 +8,18 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import FloatingActionButton from "./components/FloatingActionButton";
 import HeroHeader from "./components/HeroHeader";
@@ -29,9 +41,18 @@ const HomeScreen = () => {
   const [username, setUsername] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
+  const [showStorageDialog, setShowStorageDialog] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [editedMeta, setEditedMeta] = useState<any>({});
+  const [storageInfo, setStorageInfo] = useState<{
+    videoCount: number;
+    totalVideoSize: number;
+    trackCount: number;
+    totalTrackSize: number;
+    metadataSize: number;
+    totalSize: number;
+  } | null>(null);
 
   const handleUpload = useCallback(
     async (record: any, index: number) => {
@@ -401,51 +422,6 @@ const HomeScreen = () => {
     []
   );
 
-  const handleDelete = useCallback(
-    (indexToRemove: number) => {
-      const sessionName =
-        locations[indexToRemove]?.meta?.videoName ?? "this session";
-      Alert.alert(
-        "⚠️ Delete Session",
-        `Are you sure you want to delete "${sessionName}"? This action cannot be undone.`,
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {}, // Do nothing on cancel
-          },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                setDeletingIndex(indexToRemove);
-                const updated = locations.filter(
-                  (_, idx) => idx !== indexToRemove
-                );
-                setLocations(updated);
-                await AsyncStorage.setItem(
-                  "RECORDINGS",
-                  JSON.stringify(updated)
-                );
-              } catch (error) {
-                console.error("Failed to delete recording:", error);
-                Alert.alert(
-                  "Error",
-                  "Failed to delete recording. Please try again."
-                );
-              } finally {
-                setDeletingIndex(null);
-              }
-            },
-          },
-        ],
-        { cancelable: true }
-      );
-    },
-    [locations]
-  );
-
   const handleCardPress = useCallback((item: any, index: number) => {
     setSelectedItem(item);
     setSelectedIndex(index);
@@ -496,6 +472,169 @@ const HomeScreen = () => {
       handleSaveToDevicePath(selectedItem, selectedIndex);
     }
   }, [selectedItem, selectedIndex, handleSaveToDevicePath]);
+
+  const checkStorageUsage = useCallback(async () => {
+    try {
+      // Check AsyncStorage metadata size
+      const recordings = await AsyncStorage.getItem("RECORDINGS");
+      const user = await AsyncStorage.getItem("user");
+
+      // Calculate size: JavaScript strings are UTF-16, so each character is 2 bytes
+      const recordingsSize = recordings ? recordings.length * 2 : 0;
+      const userSize = user ? user.length * 2 : 0;
+      const metadataSize = recordingsSize + userSize;
+
+      // Check video files
+      const videosDir = FileSystem.documentDirectory + "videos/";
+      let videoFiles: any[] = [];
+      let totalVideoSize = 0;
+
+      try {
+        const videoInfo = await FileSystem.getInfoAsync(videosDir);
+        if (videoInfo.exists && videoInfo.isDirectory) {
+          const files = await FileSystem.readDirectoryAsync(videosDir);
+          for (const file of files) {
+            const fileInfo = await FileSystem.getInfoAsync(videosDir + file);
+            if (fileInfo.exists && fileInfo.size) {
+              totalVideoSize += fileInfo.size;
+              videoFiles.push({ name: file, size: fileInfo.size });
+            }
+          }
+        }
+      } catch (e) {
+        console.log("No videos directory");
+      }
+
+      // Check track files
+      const pathsDir = FileSystem.documentDirectory + "paths/";
+      let trackFiles: any[] = [];
+      let totalTrackSize = 0;
+
+      try {
+        const trackInfo = await FileSystem.getInfoAsync(pathsDir);
+        if (trackInfo.exists && trackInfo.isDirectory) {
+          const files = await FileSystem.readDirectoryAsync(pathsDir);
+          for (const file of files) {
+            const fileInfo = await FileSystem.getInfoAsync(pathsDir + file);
+            if (fileInfo.exists && fileInfo.size) {
+              totalTrackSize += fileInfo.size;
+              trackFiles.push({ name: file, size: fileInfo.size });
+            }
+          }
+        }
+      } catch (e) {
+        console.log("No paths directory");
+      }
+
+      const totalSize = totalVideoSize + totalTrackSize;
+
+      setStorageInfo({
+        videoCount: videoFiles.length,
+        totalVideoSize,
+        trackCount: trackFiles.length,
+        totalTrackSize,
+        metadataSize,
+        totalSize,
+      });
+    } catch (error) {
+      console.error("Error checking storage:", error);
+    }
+  }, []);
+
+  const handleDelete = useCallback(
+    (indexToRemove: number) => {
+      const sessionName =
+        locations[indexToRemove]?.meta?.videoName ?? "this session";
+      Alert.alert(
+        "⚠️ Delete Session",
+        `Are you sure you want to delete "${sessionName}"? This action cannot be undone.`,
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {}, // Do nothing on cancel
+          },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                setDeletingIndex(indexToRemove);
+
+                // Get the record before deleting it
+                const recordToDelete = locations[indexToRemove];
+
+                // Delete video file from filesystem if it exists
+                if (recordToDelete?.videoUri) {
+                  try {
+                    const videoInfo = await FileSystem.getInfoAsync(
+                      recordToDelete.videoUri
+                    );
+                    if (videoInfo.exists) {
+                      await FileSystem.deleteAsync(recordToDelete.videoUri, {
+                        idempotent: true,
+                      });
+                      console.log(
+                        "Deleted video file:",
+                        recordToDelete.videoUri
+                      );
+                    }
+                  } catch (videoError) {
+                    console.error("Error deleting video file:", videoError);
+                    // Continue with deletion even if video deletion fails
+                  }
+                }
+
+                // Delete track file from filesystem if it exists
+                if (recordToDelete?.pathFile) {
+                  try {
+                    const trackInfo = await FileSystem.getInfoAsync(
+                      recordToDelete.pathFile
+                    );
+                    if (trackInfo.exists) {
+                      await FileSystem.deleteAsync(recordToDelete.pathFile, {
+                        idempotent: true,
+                      });
+                      console.log(
+                        "Deleted track file:",
+                        recordToDelete.pathFile
+                      );
+                    }
+                  } catch (trackError) {
+                    console.error("Error deleting track file:", trackError);
+                    // Continue with deletion even if track deletion fails
+                  }
+                }
+
+                // Remove from state and AsyncStorage
+                const updated = locations.filter(
+                  (_, idx) => idx !== indexToRemove
+                );
+                setLocations(updated);
+                await AsyncStorage.setItem(
+                  "RECORDINGS",
+                  JSON.stringify(updated)
+                );
+
+                // Refresh storage info after deletion
+                checkStorageUsage();
+              } catch (error) {
+                console.error("Failed to delete recording:", error);
+                Alert.alert(
+                  "Error",
+                  "Failed to delete recording. Please try again."
+                );
+              } finally {
+                setDeletingIndex(null);
+              }
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    },
+    [locations, checkStorageUsage]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -571,8 +710,126 @@ const HomeScreen = () => {
 
       fetchLocations();
       fetchUserData();
-    }, [])
+      checkStorageUsage();
+    }, [checkStorageUsage])
   );
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 KB";
+    const mb = bytes / (1024 * 1024);
+    // If less than 1 MB, show in KB
+    if (mb < 1) {
+      const kb = bytes / 1024;
+      return Math.round(kb * 100) / 100 + " KB";
+    }
+    return Math.round(mb * 100) / 100 + " MB";
+  };
+
+  const clearAllData = useCallback(async () => {
+    try {
+      Alert.alert(
+        "Clear All Data",
+        "This will delete all recordings, track files, and video files. This action cannot be undone. Continue?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Clear All",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                setUploadStatus("Clearing all data...");
+                setShowUploadDialog(true);
+
+                // 1. Clear AsyncStorage
+                setUploadStatus("Clearing AsyncStorage...");
+                await AsyncStorage.removeItem("RECORDINGS");
+                console.log("Cleared RECORDINGS from AsyncStorage");
+
+                // 2. Delete all track files from paths/ directory
+                setUploadStatus("Deleting track files...");
+                const pathsDir = FileSystem.documentDirectory + "paths/";
+                const pathsDirInfo = await FileSystem.getInfoAsync(pathsDir);
+
+                if (pathsDirInfo.exists && pathsDirInfo.isDirectory) {
+                  const files = await FileSystem.readDirectoryAsync(pathsDir);
+                  console.log(`Found ${files.length} track files to delete`);
+
+                  for (const file of files) {
+                    try {
+                      await FileSystem.deleteAsync(pathsDir + file, {
+                        idempotent: true,
+                      });
+                    } catch (error) {
+                      console.error(
+                        `Failed to delete track file ${file}:`,
+                        error
+                      );
+                    }
+                  }
+                  console.log("Deleted all track files");
+                }
+
+                // 3. Delete all video files from videos/ directory
+                setUploadStatus("Deleting video files...");
+                const videosDir = FileSystem.documentDirectory + "videos/";
+                const videosDirInfo = await FileSystem.getInfoAsync(videosDir);
+
+                if (videosDirInfo.exists && videosDirInfo.isDirectory) {
+                  const videoFiles = await FileSystem.readDirectoryAsync(
+                    videosDir
+                  );
+                  console.log(
+                    `Found ${videoFiles.length} video files to delete`
+                  );
+
+                  for (const file of videoFiles) {
+                    try {
+                      await FileSystem.deleteAsync(videosDir + file, {
+                        idempotent: true,
+                      });
+                    } catch (error) {
+                      console.error(
+                        `Failed to delete video file ${file}:`,
+                        error
+                      );
+                    }
+                  }
+                  console.log("Deleted all video files");
+                }
+
+                // 4. Update state
+                setLocations([]);
+                setShowStorageDialog(false);
+                setShowUploadDialog(false);
+                setUploadStatus("");
+
+                // Refresh storage info
+                await checkStorageUsage();
+
+                Alert.alert(
+                  "Success",
+                  "All data has been cleared successfully."
+                );
+              } catch (error) {
+                console.error("Error during cleanup:", error);
+                setShowUploadDialog(false);
+                setUploadStatus("");
+                Alert.alert(
+                  "Error",
+                  "Some files may not have been deleted. Please check manually."
+                );
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Failed to clear data:", error);
+      setShowUploadDialog(false);
+      setUploadStatus("");
+      Alert.alert("Error", "Failed to clear data. Please try again.");
+    }
+  }, [checkStorageUsage]);
 
   if (checkingAuth) {
     return (
@@ -592,6 +849,18 @@ const HomeScreen = () => {
           onSearchChange={setSearchQuery}
           hasSessions={locations.length > 0}
         />
+
+        {/* Storage Usage Button */}
+        <TouchableOpacity
+          style={styles.storageButton}
+          onPress={() => {
+            checkStorageUsage();
+            setShowStorageDialog(true);
+          }}
+        >
+          <MaterialIcons name="storage" size={20} color="#000" />
+          <Text style={styles.storageButtonText}>View Storage Usage</Text>
+        </TouchableOpacity>
 
         <SessionsList
           locations={locations}
@@ -623,6 +892,127 @@ const HomeScreen = () => {
           onSaveTrack={handleSaveTrackFromDialog}
           onMetaChange={handleMetaChange}
         />
+
+        {/* Storage Usage Dialog */}
+        <Modal
+          visible={showStorageDialog}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowStorageDialog(false)}
+        >
+          <View style={styles.storageDialogOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              style={styles.storageKeyboardAvoidingView}
+            >
+              <View style={styles.storageDialogBox}>
+                <ScrollView
+                  style={styles.storageScrollView}
+                  contentContainerStyle={styles.storageScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={styles.storageDialogTitleContainer}>
+                    <MaterialIcons name="storage" size={24} color="#e2e8f0" />
+                    <Text style={styles.storageDialogTitle}>Storage Usage</Text>
+                  </View>
+                  <Text style={styles.storageDialogSubtitle}>
+                    View and manage your storage
+                  </Text>
+
+                  {storageInfo ? (
+                    <>
+                      <View style={styles.storageRow}>
+                        <Text style={styles.storageLabel}>Records:</Text>
+                        <Text style={styles.storageValue}>
+                          {locations.length}
+                        </Text>
+                      </View>
+                      <View style={styles.storageRow}>
+                        <Text style={styles.storageLabel}>Videos:</Text>
+                        <Text style={styles.storageValue}>
+                          {storageInfo.videoCount} (
+                          {formatBytes(storageInfo.totalVideoSize)})
+                        </Text>
+                      </View>
+                      <View style={styles.storageRow}>
+                        <Text style={styles.storageLabel}>Track Files:</Text>
+                        <Text style={styles.storageValue}>
+                          {storageInfo.trackCount} (
+                          {formatBytes(storageInfo.totalTrackSize)})
+                        </Text>
+                      </View>
+                      <View style={styles.storageRow}>
+                        <Text style={styles.storageLabel}>Metadata:</Text>
+                        <Text style={styles.storageValue}>
+                          {formatBytes(storageInfo.metadataSize)}
+                        </Text>
+                      </View>
+                      <View style={[styles.storageRow, styles.storageTotal]}>
+                        <Text style={styles.storageTotalLabel}>
+                          Total Storage:
+                        </Text>
+                        <Text style={styles.storageTotalValue}>
+                          {formatBytes(storageInfo.totalSize)}
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.storageLoading}>
+                      <ActivityIndicator size="small" color="#38bdf8" />
+                      <Text style={styles.storageLoadingText}>
+                        Loading storage info...
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.storageDialogButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.storageDialogButton,
+                        styles.storageDialogButtonRefresh,
+                      ]}
+                      onPress={checkStorageUsage}
+                    >
+                      <MaterialIcons name="refresh" size={20} color="#60a5fa" />
+                      <Text style={styles.storageDialogButtonRefreshText}>
+                        Refresh
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.storageDialogButton,
+                        styles.storageDialogButtonClear,
+                      ]}
+                      onPress={clearAllData}
+                    >
+                      <MaterialIcons
+                        name="delete-sweep"
+                        size={20}
+                        color="#f87171"
+                      />
+                      <Text style={styles.storageDialogButtonClearText}>
+                        Clear All
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.storageDialogButton,
+                      styles.storageDialogButtonCancel,
+                    ]}
+                    onPress={() => setShowStorageDialog(false)}
+                  >
+                    <MaterialIcons name="close" size={20} color="#cbd5f5" />
+                    <Text style={styles.storageDialogButtonCancelText}>
+                      Close
+                    </Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
 
         {/* Floating Action Button */}
         <FloatingActionButton />
@@ -684,6 +1074,149 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#94a3b8",
     lineHeight: 18,
+  },
+  storageButton: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  storageButtonText: {
+    color: "#000",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  storageDialogOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  storageKeyboardAvoidingView: {
+    width: "100%",
+    maxHeight: "90%",
+  },
+  storageDialogBox: {
+    backgroundColor: "black",
+    borderRadius: 24,
+    width: "100%",
+    maxHeight: "90%",
+    borderWidth: 1,
+    borderColor: "#222222",
+    overflow: "hidden",
+  },
+  storageScrollView: {
+    flexGrow: 0,
+  },
+  storageScrollContent: {
+    padding: 24,
+    gap: 16,
+  },
+  storageDialogTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  storageDialogTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  storageDialogSubtitle: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginBottom: 8,
+  },
+  storageRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  storageLabel: {
+    fontSize: 15,
+    color: "#94a3b8",
+  },
+  storageValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#e2e8f0",
+  },
+  storageTotal: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.1)",
+  },
+  storageTotalLabel: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#cbd5f5",
+  },
+  storageTotalValue: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#38bdf8",
+  },
+  storageLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingVertical: 20,
+  },
+  storageLoadingText: {
+    fontSize: 14,
+    color: "#94a3b8",
+  },
+  storageDialogButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  storageDialogButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  storageDialogButtonRefresh: {
+    backgroundColor: "rgba(59, 130, 246, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.4)",
+  },
+  storageDialogButtonClear: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.4)",
+  },
+  storageDialogButtonCancel: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    marginTop: 8,
+  },
+  storageDialogButtonRefreshText: {
+    color: "#60a5fa",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  storageDialogButtonClearText: {
+    color: "#f87171",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  storageDialogButtonCancelText: {
+    color: "#cbd5f5",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
 
