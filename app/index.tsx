@@ -582,8 +582,6 @@ const HomeScreen = () => {
     );
   }
 
-  //console.log("locations", locations);
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>

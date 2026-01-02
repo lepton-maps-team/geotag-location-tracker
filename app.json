@@ -1,7 +1,7 @@
 {
   "expo": {
-    "updates" : {
-      "url" : "https://u.expo.dev/a4b5db8d-23df-4af7-a61b-ee255cd5309a",
+    "updates": {
+      "url": "https://u.expo.dev/a4b5db8d-23df-4af7-a61b-ee255cd5309a",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -16,7 +16,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sahillepton.locationtracker"
     },
     "android": {
       "config": {
@@ -60,10 +61,10 @@
         }
       ],
       [
-      "expo-secure-store",
-      {
-        "configureAndroidBackup": true
-      }
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
       ]
     ],
     "experiments": {
