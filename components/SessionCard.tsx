@@ -198,6 +198,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
       Block: "",
       Ring: "",
       ChildRing: "",
+      DateTime: "",
     }
   );
 
@@ -227,6 +228,23 @@ const SessionCard: React.FC<SessionCardProps> = ({
 
   const sessionName = item?.meta?.Name ?? "Unnamed";
 
+  // Format DateTime for display
+  const formatDateTime = (dateTimeString?: string) => {
+    if (!dateTimeString) return "";
+    try {
+      const date = new Date(dateTimeString);
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return dateTimeString;
+    }
+  };
+
   return (
     <View style={styles.recordItem}>
       <View style={styles.recordItemContent}>
@@ -237,9 +255,14 @@ const SessionCard: React.FC<SessionCardProps> = ({
 
         {/* Content area (name, buttons) */}
         <View style={styles.recordItemMain}>
-          {/* Top row: Session name */}
+          {/* Top row: Session name and DateTime */}
           <View style={styles.recordItemHeader}>
             <Text style={styles.recordTitle}>{sessionName}</Text>
+            {item?.meta?.DateTime && (
+              <Text style={styles.recordDateTime}>
+                {formatDateTime(item.meta.DateTime)}
+              </Text>
+            )}
           </View>
 
           {/* Buttons row */}
@@ -259,6 +282,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                     Block: "",
                     Ring: "",
                     ChildRing: "",
+                    DateTime: "",
                   }
                 );
                 setShowEditDialog(true);
@@ -558,6 +582,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#ffffff",
     flex: 1,
+  },
+  recordDateTime: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginLeft: 8,
   },
   recordActions: {
     flexDirection: "row",

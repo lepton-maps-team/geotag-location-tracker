@@ -1,3 +1,4 @@
+import DatePicker from "@/components/DatePicker";
 import SessionCard from "@/components/SessionCard";
 import { supabase } from "@/lib/supabase";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
@@ -28,6 +29,8 @@ const HomeScreen = () => {
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const [user, setUser] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
 
   // Get user initials for avatar
   const getInitials = useCallback((username: string) => {
@@ -253,14 +256,38 @@ const HomeScreen = () => {
 
   // console.log(locations?.length > 0 ? locations[0].path : []);
 
-  // Filter locations based on search query
+  // Filter locations based on search query and date
   const filteredLocations = locations.filter((item) => {
+    // Filter by date if date is selected
+    if (selectedDate) {
+      const sessionDate = item?.meta?.DateTime;
+      if (!sessionDate) return false;
+      try {
+        const sessionDateObj = new Date(sessionDate);
+        const filterDateObj = new Date(selectedDate);
+        // Compare dates (ignore time)
+        const sessionDateStr = sessionDateObj.toDateString();
+        const filterDateStr = filterDateObj.toDateString();
+        if (sessionDateStr !== filterDateStr) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+    }
+    // Filter by search query
     if (!searchQuery.trim()) return true;
     const name = item?.meta?.Name?.toLowerCase() || "";
     return name.includes(searchQuery.toLowerCase().trim());
   });
 
-  console.log(user);
+  const handleDateSelect = (date: string) => {
+    setSelectedDate(date);
+  };
+
+  const handleClearDate = () => {
+    setSelectedDate("");
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -291,30 +318,70 @@ const HomeScreen = () => {
               </View>
             </TouchableOpacity>
           </View>
-          <View style={styles.searchContainer}>
-            <MaterialIcons
-              name="search"
-              size={20}
-              color="#94a3b8"
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search sessions..."
-              placeholderTextColor="#828282"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setSearchQuery("")}
-                style={styles.clearButton}
-              >
-                <MaterialIcons name="close" size={20} color="#94a3b8" />
-              </TouchableOpacity>
-            )}
+          <View style={styles.searchRow}>
+            <View style={styles.searchContainer}>
+              <MaterialIcons
+                name="search"
+                size={20}
+                color="#94a3b8"
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search sessions..."
+                placeholderTextColor="#828282"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setSearchQuery("")}
+                  style={styles.clearButton}
+                >
+                  <MaterialIcons name="close" size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.dateButton,
+                selectedDate && styles.dateButtonActive,
+              ]}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <MaterialIcons
+                name="calendar-today"
+                size={20}
+                color={selectedDate ? "#ffffff" : "#94a3b8"}
+              />
+            </TouchableOpacity>
           </View>
+          {selectedDate && (
+            <View style={styles.dateBadge}>
+              <Text style={styles.dateBadgeText}>
+                {new Date(selectedDate).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </Text>
+              <TouchableOpacity
+                onPress={handleClearDate}
+                style={styles.dateBadgeClose}
+              >
+                <MaterialIcons name="close" size={16} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
+
+        {/* Date Picker Component */}
+        <DatePicker
+          visible={showDatePicker}
+          selectedDate={selectedDate}
+          onDateSelect={handleDateSelect}
+          onClose={() => setShowDatePicker(false)}
+        />
         <FlatList
           data={filteredLocations}
           keyExtractor={(item, index) =>
@@ -328,10 +395,19 @@ const HomeScreen = () => {
           ]}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No recordings yet</Text>
+              <Text style={styles.emptyTitle}>
+                {selectedDate ? "No surveys found" : "No recordings yet"}
+              </Text>
               <Text style={styles.emptySubtitle}>
-                Tap “Record New Session” to start capturing GPS points with rich
-                metadata.
+                {selectedDate
+                  ? `No surveys found for ${new Date(
+                      selectedDate
+                    ).toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}.`
+                  : 'Tap "Record New Session" to start capturing GPS points with rich metadata.'}
               </Text>
             </View>
           }
@@ -428,6 +504,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -437,7 +519,40 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: "rgba(148, 163, 184, 0.25)",
-    marginTop: 4,
+    flex: 1,
+  },
+  dateButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#1f1f1f",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dateButtonActive: {
+    backgroundColor: "rgba(99, 102, 241, 0.9)",
+    borderColor: "rgba(99, 102, 241, 0.5)",
+  },
+  dateBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(99, 102, 241, 0.2)",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+    gap: 8,
+  },
+  dateBadgeText: {
+    fontSize: 13,
+    color: "#cbd5f5",
+    fontWeight: "500",
+  },
+  dateBadgeClose: {
+    padding: 2,
   },
   searchIcon: {
     marginRight: 12,

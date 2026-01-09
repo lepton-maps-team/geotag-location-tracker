@@ -34,6 +34,7 @@ type SessionMeta = {
   Block: string;
   Ring: string;
   ChildRing: string;
+  DateTime: string;
 };
 
 type RecordingSession = {
@@ -57,6 +58,7 @@ const LocationScreen: React.FC = () => {
     Block: "",
     Ring: "",
     ChildRing: "",
+    DateTime: "",
   });
   const [showDialog, setShowDialog] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -230,6 +232,11 @@ const LocationScreen: React.FC = () => {
     setLocation(null);
     recordingStartTime.current = Date.now();
     firstPointTimestamp.current = null; // Reset first point timestamp
+    // Set DateTime when recording starts
+    setMeta((prev) => ({
+      ...prev,
+      DateTime: new Date().toISOString(),
+    }));
   };
 
   const stopRecording = async (navigateBack: boolean = true) => {
