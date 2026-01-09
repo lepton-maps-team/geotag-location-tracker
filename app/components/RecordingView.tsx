@@ -203,8 +203,8 @@ const RecordingView: React.FC<RecordingViewProps> = ({ onStop }) => {
         style={styles.camera}
         facing="back"
         onCameraReady={handleCameraReady}
-        videoQuality="480p"
-        videoBitrate={400_000}
+        videoQuality="720p"
+        videoBitrate={3_500_000}
       />
 
       {/* Location overlay - top right */}
