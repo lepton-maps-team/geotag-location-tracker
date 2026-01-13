@@ -697,7 +697,658 @@ npm run ios
 
 ---
 
-## 16. Glossary
+## 16. Code Details
+
+### 16.1 Type Definitions
+
+**Location Data Structure** (`app/location.tsx`):
+
+```typescript
+type LocationData = {
+  Latitude: number;
+  Longitude: number;
+  Accuracy: number | null;
+  Timestamp: number; // Seconds since first point (0 for first point)
+};
+```
+
+**Session Metadata Structure** (`app/location.tsx`):
+
+```typescript
+type SessionMeta = {
+  Name: string;
+  State: string;
+  District: string;
+  Block: string;
+  Ring: string;
+  ChildRing: string;
+  DateTime: string; // ISO 8601 format
+};
+```
+
+**Recording Session Structure** (`app/location.tsx`):
+
+```typescript
+type RecordingSession = {
+  meta: SessionMeta;
+  path: LocationData[];
+  uploaded?: boolean; // Optional flag for upload status
+};
+```
+
+**Session Card Props** (`components/SessionCard.tsx`):
+
+```typescript
+interface SessionCardProps {
+  item: any; // Session data object
+  originalIndex: number; // Index in full array
+  onUpload: () => void; // Upload callback
+  onSave: () => void; // Save callback
+  onDelete: () => void; // Delete callback
+  onEdit: (updatedMeta: any) => void; // Edit callback with metadata
+  isUploading: boolean; // Upload state flag
+  isSaving: boolean; // Save state flag
+  isDeleting: boolean; // Delete state flag
+}
+```
+
+### 16.2 Key Data Structures
+
+**AsyncStorage Keys**:
+
+- `"RECORDINGS"`: Array of `RecordingSession` objects
+- `"user"`: User object from authentication
+
+**Session Storage Format**:
+
+```typescript
+// AsyncStorage.getItem("RECORDINGS") returns:
+[
+  {
+    meta: {
+      Name: "Field Survey 1",
+      State: "Punjab",
+      District: "Amritsar",
+      Block: "Chogawan",
+      Ring: "R1",
+      ChildRing: "CR1",
+      DateTime: "2024-01-15T10:30:00.000Z",
+    },
+    path: [
+      {
+        Latitude: 31.634308,
+        Longitude: 74.873678,
+        Accuracy: 5.2,
+        Timestamp: 0,
+      },
+      {
+        Latitude: 31.63431,
+        Longitude: 74.87368,
+        Accuracy: 4.8,
+        Timestamp: 2,
+      },
+      // ... more points
+    ],
+    uploaded: false,
+  },
+  // ... more sessions
+];
+```
+
+### 16.3 Core Module Code Examples
+
+#### 16.3.1 Location Recording Logic (`app/location.tsx`)
+
+**GPS Tracking Setup**:
+
+```typescript
+// Initialize Kalman filters for smoothing
+const latFilter = useRef(new AdaptiveKalman()).current;
+const lngFilter = useRef(new AdaptiveKalman()).current;
+
+// Location subscription
+locationSubscription.current = await Location.watchPositionAsync(
+  {
+    accuracy: Location.Accuracy.BestForNavigation,
+    timeInterval: 1000, // Update every 1 second
+    distanceInterval: 1, // Or every 1 meter
+  },
+  (location) => {
+    const { latitude, longitude, accuracy } = location.coords;
+
+    // Apply Kalman filtering
+    const smoothLat = parseFloat(
+      latFilter.filter(latitude, accuracy || null).toFixed(6)
+    );
+    const smoothLng = parseFloat(
+      lngFilter.filter(longitude, accuracy || null).toFixed(6)
+    );
+
+    // Distance filter (only add if moved ≥0.3m)
+    const prev = currentPath[currentPath.length - 1];
+    const dx = smoothLat - prev.Latitude;
+    const dy = smoothLng - prev.Longitude;
+    const distance = Math.sqrt(dx * dx + dy * dy) * 111320; // meters
+
+    if (distance < 0.3) return; // Skip if too close
+
+    // Calculate timestamp (0 for first point, seconds since first for others)
+    let timestamp = 0;
+    if (currentPath.length === 0) {
+      firstPointTimestamp.current = Date.now();
+      timestamp = 0;
+    } else {
+      timestamp = Math.floor(
+        (Date.now() - firstPointTimestamp.current!) / 1000
+      );
+    }
+
+    // Add to path
+    const loc: LocationData = {
+      Latitude: smoothLat,
+      Longitude: smoothLng,
+      Accuracy: accuracy || null,
+      Timestamp: timestamp,
+    };
+
+    setPath((prev) => [...prev, loc]);
+  }
+);
+```
+
+**Save Session to AsyncStorage**:
+
+```typescript
+const stopRecording = async (navigateBack: boolean = true) => {
+  setIsRecording(false);
+
+  try {
+    const existing = await AsyncStorage.getItem(STORAGE_KEY);
+    const oldSessions: RecordingSession[] = existing
+      ? JSON.parse(existing)
+      : [];
+
+    const newSession: RecordingSession = {
+      meta,
+      path,
+      uploaded: false,
+    };
+    const updated = [...oldSessions, newSession];
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    Alert.alert(
+      "Recording Saved",
+      `Saved ${path.length} points for ${meta.Name || "Unnamed"}`
+    );
+
+    if (navigateBack) {
+      router.back();
+    }
+  } catch (error) {
+    console.error("Error saving data:", error);
+    Alert.alert("Error", "Could not save location data.");
+  }
+};
+```
+
+#### 16.3.2 Authentication Logic (`components/Auth.tsx`)
+
+**Login Implementation**:
+
+```typescript
+const handleLogin = useCallback(async () => {
+  const trimmedUsername = username.trim();
+
+  if (!trimmedUsername || !password) {
+    setError("Please enter both username and password.");
+    return;
+  }
+
+  setLoading(true);
+  setError(null);
+
+  try {
+    const { data, error: supabaseError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("username", trimmedUsername)
+      .eq("password", password)
+      .single();
+
+    if (supabaseError) {
+      if (
+        supabaseError.code === "PGRST116" ||
+        supabaseError.message?.includes("No rows")
+      ) {
+        setError("Invalid username or password.");
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
+      return;
+    }
+
+    if (!data || data.password !== password) {
+      setError("Invalid username or password.");
+      return;
+    }
+
+    // Store user data
+    AsyncStorage.setItem("user", JSON.stringify(data));
+    router.replace("/");
+  } catch (caughtError) {
+    console.error("Login error:", caughtError);
+    setError("An unexpected error occurred. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+}, [password, router, username]);
+```
+
+#### 16.3.3 Upload to Supabase (`app/index.tsx`)
+
+**Upload Session Logic**:
+
+```typescript
+const handleUpload = useCallback(
+  async (record: any, index: number) => {
+    if (record?.uploaded) {
+      Alert.alert(
+        "Already uploaded",
+        "This session has already been uploaded to Supabase."
+      );
+      return;
+    }
+
+    try {
+      setUploadingIndex(index);
+      const storedUser = await AsyncStorage.getItem("user");
+      const user = JSON.parse(storedUser as string);
+
+      const track = record.path;
+
+      // Insert GPS track
+      const { data, error } = await supabase
+        .from("gps_tracks")
+        .insert({
+          name: record?.meta?.Name,
+          location_data: track,
+          timestamp: Date.now(),
+          duration: track[track.length - 1].Timestamp - track[0].Timestamp,
+          route_id: "",
+          entity_id: "",
+          depth_data: [],
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Insert survey record
+      await supabase.from("surveys").insert({
+        name: record?.meta?.Name,
+        gps_track_id: data.id,
+        timestamp: Date.now(),
+        user_id: user.user_id,
+        state: record?.meta?.State,
+        district: record?.meta?.District,
+        block: record?.meta?.Block,
+        ring: record?.meta?.Ring,
+        child_ring: record?.meta?.ChildRing,
+      });
+
+      // Update local storage
+      const updated = [...locations];
+      updated[index] = { ...record, uploaded: true };
+      setLocations(updated);
+      await AsyncStorage.setItem("RECORDINGS", JSON.stringify(updated));
+
+      Alert.alert("Uploaded", `Uploaded ${data.name} successfully.`);
+    } catch (error) {
+      console.error("Failed to upload recording:", error);
+      Alert.alert(
+        "Upload failed",
+        "We couldn't upload the file. Please try again."
+      );
+    } finally {
+      setUploadingIndex(null);
+    }
+  },
+  [locations]
+);
+```
+
+#### 16.3.4 Kalman Filter Implementation (`lib/filter.ts`)
+
+**Complete Filter Class**:
+
+```typescript
+export class AdaptiveKalman {
+  private R = 0.0001; // measurement noise (adaptive)
+  private Q = 0.00001; // process noise (fixed)
+  private x = 0; // estimated value
+  private p = 1; // estimation error covariance
+  private k = 0; // Kalman gain
+  private initialized = false;
+
+  filter(value: number, accuracy: number | null): number {
+    // Initialize with first value
+    if (!this.initialized) {
+      this.x = value;
+      this.initialized = true;
+      return value;
+    }
+
+    // Adapt measurement noise based on GPS accuracy
+    if (accuracy !== null && accuracy > 0) {
+      this.R = Math.max(0.0001, accuracy * accuracy * 0.000001);
+    }
+
+    // Prediction step
+    this.p = this.p + this.Q;
+
+    // Update step
+    this.k = this.p / (this.p + this.R);
+    this.x = this.x + this.k * (value - this.x);
+    this.p = (1 - this.k) * this.p;
+
+    return this.x;
+  }
+}
+```
+
+**Usage Example**:
+
+```typescript
+// Create separate filters for latitude and longitude
+const latFilter = useRef(new AdaptiveKalman()).current;
+const lngFilter = useRef(new AdaptiveKalman()).current;
+
+// Apply filtering
+const smoothLat = latFilter.filter(latitude, accuracy || null);
+const smoothLng = lngFilter.filter(longitude, accuracy || null);
+```
+
+#### 16.3.5 Supabase Client Configuration (`lib/supabase.ts`)
+
+**Client Setup**:
+
+```typescript
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = "https://xengyefjbnoolmqyphxw.supabase.co";
+const supabasePublishableKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
+
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+```
+
+#### 16.3.6 Session Filtering Logic (`app/index.tsx`)
+
+**Search and Date Filtering**:
+
+```typescript
+const filteredLocations = locations.filter((item) => {
+  // Filter by date if date is selected
+  if (selectedDate) {
+    const sessionDate = item?.meta?.DateTime;
+    if (!sessionDate) return false;
+
+    try {
+      const sessionDateObj = new Date(sessionDate);
+      const filterDateObj = new Date(selectedDate);
+
+      // Compare dates (ignore time)
+      const sessionDateStr = sessionDateObj.toDateString();
+      const filterDateStr = filterDateObj.toDateString();
+      if (sessionDateStr !== filterDateStr) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  // Filter by search query (case-insensitive)
+  if (!searchQuery.trim()) return true;
+  const name = item?.meta?.Name?.toLowerCase() || "";
+  return name.includes(searchQuery.toLowerCase().trim());
+});
+```
+
+#### 16.3.7 File Export Logic (`app/index.tsx`)
+
+**Save Session as JSON File**:
+
+```typescript
+const handleSaveToDevice = useCallback(async (record: any, index: number) => {
+  try {
+    setSavingIndex(index);
+    const randomId = Math.random().toString(36).substring(2, 10);
+    const fileName = `${record?.meta?.Name || "record"}-${randomId}.txt`;
+
+    const directoryUri = FileSystem.documentDirectory;
+    const fileUri = directoryUri + fileName;
+
+    // Write JSON to file
+    FileSystem.writeAsStringAsync(fileUri, JSON.stringify(record));
+
+    // Share file
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(fileUri);
+    } else {
+      alert("You need to give permission to share.");
+    }
+  } catch (error: any) {
+    console.error(error);
+    alert(`Failed to save file.\n\nError: ${error.message || error}`);
+  } finally {
+    setSavingIndex(null);
+  }
+}, []);
+```
+
+### 16.4 Navigation Setup (`app/_layout.tsx`)
+
+**Root Layout Configuration**:
+
+```typescript
+import { Stack } from "expo-router";
+import { ThemeProvider } from "@react-navigation/native";
+
+export default function RootLayout() {
+  const colorScheme = useColorScheme();
+
+  return (
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+      <Stack>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="location" options={{ title: "Location" }} />
+        <Stack.Screen name="profile" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="modal"
+          options={{ presentation: "modal", title: "Modal" }}
+        />
+      </Stack>
+      <StatusBar style="auto" />
+    </ThemeProvider>
+  );
+}
+```
+
+### 16.5 Constants and Configuration
+
+**Metadata Options** (`constants/lists.ts`):
+
+```typescript
+export const states = [
+  "Punjab",
+  "Uttar Pradesh (East)",
+  "Manipur",
+  // ... more states
+];
+
+export const districts = [
+  "Amritsar",
+  "AMRITSAR",
+  "Barnala",
+  // ... more districts
+];
+
+export const blocks = [
+  "Chogawan",
+  "Jandiwala Guru",
+  // ... more blocks
+];
+```
+
+**Storage Keys** (`app/location.tsx`, `app/index.tsx`):
+
+```typescript
+const STORAGE_KEY = "RECORDINGS"; // For session storage
+const USER_KEY = "user"; // For authenticated user storage
+```
+
+### 16.6 Key Algorithms and Calculations
+
+**Distance Calculation** (Haversine approximation):
+
+```typescript
+// Calculate distance between two GPS points in meters
+const dx = lat2 - lat1;
+const dy = lng2 - lng1;
+const distance = Math.sqrt(dx * dx + dy * dy) * 111320; // ~111320 meters per degree
+```
+
+**Timestamp Calculation**:
+
+```typescript
+// First point timestamp = 0
+// Subsequent points = seconds since first point
+if (currentPath.length === 0) {
+  firstPointTimestamp.current = Date.now();
+  timestamp = 0;
+} else {
+  timestamp = Math.floor((Date.now() - firstPointTimestamp.current!) / 1000);
+}
+```
+
+**Duration Calculation** (for upload):
+
+```typescript
+const duration = track[track.length - 1].Timestamp - track[0].Timestamp;
+```
+
+### 16.7 Error Handling Patterns
+
+**Standard Error Handling**:
+
+```typescript
+try {
+  // Async operation
+  await someAsyncOperation();
+} catch (error) {
+  console.error("Operation failed:", error);
+  Alert.alert("Error", "Operation failed. Please try again.");
+} finally {
+  // Cleanup
+  setLoading(false);
+}
+```
+
+**Permission Handling**:
+
+```typescript
+const { status } = await Location.requestForegroundPermissionsAsync();
+if (status !== "granted") {
+  Alert.alert(
+    "Permission required",
+    "Location permission is required to record."
+  );
+  return;
+}
+```
+
+### 16.8 Component Hooks Usage
+
+**useFocusEffect for Data Loading**:
+
+```typescript
+useFocusEffect(
+  useCallback(() => {
+    const fetchLocations = async () => {
+      const storedLocations = await AsyncStorage.getItem("RECORDINGS");
+      const parsed = storedLocations ? JSON.parse(storedLocations) : [];
+      setLocations(parsed);
+    };
+    fetchLocations();
+  }, [])
+);
+```
+
+**useRef for Filters**:
+
+```typescript
+// Filters persist across re-renders
+const latFilter = useRef(new AdaptiveKalman()).current;
+const lngFilter = useRef(new AdaptiveKalman()).current;
+
+// Subscription ref for cleanup
+const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+```
+
+### 16.9 Database Schema (Inferred from Code)
+
+**Supabase Tables**:
+
+```sql
+-- users table
+CREATE TABLE users (
+  user_id SERIAL PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  -- other fields...
+);
+
+-- gps_tracks table
+CREATE TABLE gps_tracks (
+  id SERIAL PRIMARY KEY,
+  name TEXT,
+  location_data JSONB, -- Array of LocationData objects
+  timestamp BIGINT,
+  duration INTEGER, -- Seconds
+  route_id TEXT,
+  entity_id TEXT,
+  depth_data JSONB
+);
+
+-- surveys table
+CREATE TABLE surveys (
+  id SERIAL PRIMARY KEY,
+  name TEXT,
+  gps_track_id INTEGER REFERENCES gps_tracks(id),
+  timestamp BIGINT,
+  user_id INTEGER REFERENCES users(user_id),
+  state TEXT,
+  district TEXT,
+  block TEXT,
+  ring TEXT,
+  child_ring TEXT
+);
+```
+
+---
+
+## 17. Glossary
 
 ### Domain Terms
 
