@@ -1340,6 +1340,40 @@ This section documents significant bug fixes and features added during developme
 - **Feature:** Additional quality-related improvements for video recording
 - **Impact:** Enhanced video recording functionality and quality management
 
+#### 3. Storage Usage Monitoring & Management (January 2026)
+
+**Location:** `app/index.tsx` (lines 896-1016)
+
+- **Feature:** Added storage usage monitoring dialog and data clearing functionality
+- **Purpose:** Monitor storage usage and clear all app data without uninstalling the app
+- **Functionality:**
+  - **Storage Monitoring:**
+    - Displays number of records
+    - Shows video count and total video file size
+    - Shows track file count and total track file size
+    - Displays metadata size (AsyncStorage)
+    - Shows total storage usage across all components
+  - **Data Management:**
+    - Refresh button to recalculate storage usage
+    - Clear All button to delete all app data:
+      - Clears AsyncStorage (RECORDINGS and metadata)
+      - Deletes all track files from `paths/` directory
+      - Deletes all video files from `videos/` directory
+      - Provides confirmation dialog before clearing
+    - Progress indicators during clearing process
+- **Benefits:**
+  - Users can monitor storage consumption
+  - Easy way to free up space without uninstalling
+  - Helps identify storage-heavy components
+  - Useful for troubleshooting storage issues
+- **UI Components:**
+  - Modal dialog with storage breakdown
+  - Formatted byte display (KB, MB)
+  - Loading states during calculation
+  - Action buttons (Refresh, Clear All, Close)
+- **Files Modified:**
+  - `app/index.tsx` (storage dialog UI and logic)
+
 ### Summary
 
 The development work focused on:
@@ -1360,5 +1394,3 @@ All fixes and features have been tested and are included in the current codebase
 - **Owner**: sahillepton
 - **Project ID**: a4b5db8d-23df-4af7-a61b-ee255cd5309a
 - **Last Updated**: See git history
-
-For questions or issues, refer to the codebase or contact the development team.
